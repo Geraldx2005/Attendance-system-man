@@ -9,6 +9,7 @@ import EmployeeMapDialog from "./components/EmployeeMapDialog";
 
 import UploadDialog from "./components/UploadDialog";
 import Reports from "./components/Reports";
+import DailyReport from "./components/DailyReport";
 import { apiFetch } from "./utils/api";
 import { to12Hour } from "./utils/time";
 import ToastHost from "./utils/ToastHost";
@@ -49,6 +50,8 @@ function App() {
   const [attendanceView, setAttendanceView] = useState("dayGridMonth");
   const [attendanceDayStats, setAttendanceDayStats] = useState(null);
   const [reportPeriod, setReportPeriod] = useState(null);
+  const [dailyReportDate, setDailyReportDate] = useState(null);
+  const [reportTab, setReportTab] = useState("monthly");
 
   const [refreshing, setRefreshing] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
@@ -286,16 +289,43 @@ function App() {
           {/* REPORTS VIEW */}
           {activeView === "REPORTS" && (
             <>
-              <div className="h-14 px-4 flex items-center bg-nero-800 border-b-2 border-nero-900">
+              <div className="h-14 px-4 flex items-center justify-between bg-nero-800 border-b-2 border-nero-900">
                 <div className="text-lg font-semibold">
-                  {reportPeriod
-                    ? `Monthly Attendance Report — ${reportPeriod.month} ${reportPeriod.year}`
-                    : "Monthly Attendance Report"}
+                  {reportTab === "monthly"
+                    ? (reportPeriod ? `Monthly Report — ${reportPeriod.month} ${reportPeriod.year}` : "Monthly Attendance Report")
+                    : (dailyReportDate ? `Daily Report — ${dailyReportDate}` : "Daily Attendance Report")
+                  }
+                </div>
+
+                {/* Tab Buttons */}
+                <div className="flex bg-nero-900 rounded-md p-1">
+                  <button
+                    onClick={() => setReportTab("monthly")}
+                    className={`px-4 py-1.5 text-sm font-medium rounded transition-colors cursor-pointer ${reportTab === "monthly"
+                        ? "bg-nero-700 text-nero-200"
+                        : "text-nero-500 hover:text-nero-300"
+                      }`}
+                  >
+                    Monthly
+                  </button>
+                  <button
+                    onClick={() => setReportTab("daily")}
+                    className={`px-4 py-1.5 text-sm font-medium rounded transition-colors cursor-pointer ${reportTab === "daily"
+                        ? "bg-nero-700 text-nero-200"
+                        : "text-nero-500 hover:text-nero-300"
+                      }`}
+                  >
+                    Daily
+                  </button>
                 </div>
               </div>
 
               <div className="flex-1 p-3 flex min-h-0">
-                <Reports onGenerated={(m, y) => setReportPeriod({ month: m, year: y })} />
+                {reportTab === "monthly" ? (
+                  <Reports onGenerated={(m, y) => setReportPeriod({ month: m, year: y })} />
+                ) : (
+                  <DailyReport onGenerated={(dateStr) => setDailyReportDate(dateStr)} />
+                )}
               </div>
             </>
           )}
