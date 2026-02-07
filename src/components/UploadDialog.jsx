@@ -1,6 +1,9 @@
 import { useEffect, useState, useRef } from "react";
-import { IoCloudUploadOutline, IoDocumentTextOutline, IoClose, IoCheckmarkCircle } from "react-icons/io5";
 import { toast } from "../utils/ToastHost";
+
+// Icons
+import { IoDocumentTextOutline, IoClose, IoCheckmarkCircle } from "react-icons/io5";
+import { MdOutlineUploadFile } from "react-icons/md";
 
 export default function UploadDialog({ open, onClose }) {
   const [dragActive, setDragActive] = useState(false);
@@ -233,7 +236,7 @@ export default function UploadDialog({ open, onClose }) {
               >
                 <div className="flex justify-center mb-4">
                   <div className="w-16 h-16 rounded-full bg-emerald-500/10 flex items-center justify-center">
-                    <IoCloudUploadOutline className="text-3xl text-emerald-500" />
+                    <MdOutlineUploadFile className="text-3xl text-emerald-500" />
                   </div>
                 </div>
 
@@ -316,10 +319,10 @@ export default function UploadDialog({ open, onClose }) {
               <div className="h-2 bg-nero-700 rounded-full overflow-hidden">
                 <div
                   className={`h-full rounded-full transition-all duration-300 ease-out ${progress.phase === "complete"
-                      ? "bg-emerald-500"
-                      : progress.phase === "error"
-                        ? "bg-red-500"
-                        : "bg-blue-500"
+                    ? "bg-emerald-500"
+                    : progress.phase === "error"
+                      ? "bg-red-500"
+                      : "bg-blue-500"
                     }`}
                   style={{ width: `${progress.progress}%` }}
                 />
@@ -346,10 +349,10 @@ export default function UploadDialog({ open, onClose }) {
                   <div key={phase} className="flex items-center gap-2">
                     <div
                       className={`w-2 h-2 rounded-full transition-all duration-300 ${isComplete
-                          ? "bg-emerald-500"
-                          : isActive
-                            ? "bg-blue-500 animate-pulse"
-                            : "bg-nero-600"
+                        ? "bg-emerald-500"
+                        : isActive
+                          ? "bg-blue-500 animate-pulse"
+                          : "bg-nero-600"
                         }`}
                     />
                     {idx < 3 && (

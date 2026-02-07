@@ -2,10 +2,217 @@ import { useState, useMemo } from "react";
 import { MaterialReactTable } from "material-react-table";
 import { ThemeProvider, createTheme } from "@mui/material/styles";
 import CssBaseline from "@mui/material/CssBaseline";
+import CalendarTodayIcon from "@mui/icons-material/CalendarToday";
+import DatePicker from "react-datepicker";
+import "react-datepicker/dist/react-datepicker.css";
 import * as XLSX from "xlsx";
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 import { apiFetch } from "../utils/api";
+
+// Custom Dark Theme CSS for React-Datepicker
+const datePickerStyles = `
+.dark-datepicker-wrapper {
+    position: relative;
+    z-index: 9999;
+}
+
+.dark-datepicker-wrapper .react-datepicker-wrapper {
+    width: 160px;
+}
+
+.dark-datepicker-wrapper .react-datepicker__input-container {
+    width: 100%;
+}
+
+.dark-datepicker-wrapper .react-datepicker__input-container .react-datepicker-custom-input {
+    background-color: #0f0f0f;
+    border: 2px solid #262626;
+    border-radius: 8px;
+    color: #e5e7eb;
+    padding: 8px 12px 8px 12px; /* Top, Right, Bottom, Left */
+    padding-right: 30px; /* Make space for icon */
+    font-size: 14px;
+    width: 160px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.dark-datepicker-wrapper .react-datepicker__input-container .react-datepicker-custom-input:hover {
+    border-color: rgba(16, 185, 129, 0.5);
+    border-width: 2px;
+}
+
+.dark-datepicker-wrapper .react-datepicker__input-container .react-datepicker-custom-input:focus {
+    outline: none;
+    border-color: rgba(16, 185, 129, 0.8);
+}
+
+.dark-datepicker-wrapper .react-datepicker__input-container .react-datepicker-custom-input::placeholder {
+    color: #6b7280;
+}
+
+.dark-datepicker-popper {
+    z-index: 9999 !important;
+}
+
+.dark-datepicker-popper .react-datepicker {
+    background-color: #141414;
+    border: 1px solid #262626;
+    border-radius: 12px;
+    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.6);
+    font-family: inherit;
+    overflow: hidden;
+}
+
+.dark-datepicker-popper .react-datepicker__header {
+    background-color: #1a1a1a;
+    border-bottom: 1px solid #262626;
+    padding: 12px;
+}
+
+.dark-datepicker-popper .react-datepicker__current-month {
+    color: #e5e7eb;
+    font-size: 15px;
+    font-weight: 600;
+}
+
+.dark-datepicker-popper .react-datepicker__day-names {
+    display: flex;
+    justify-content: space-around;
+    margin-top: 4px;
+}
+
+.dark-datepicker-popper .react-datepicker__day-name {
+    color: #6b7280;
+    font-size: 12px;
+    font-weight: 500;
+    width: 36px;
+    text-transform: uppercase;
+}
+
+.dark-datepicker-popper .react-datepicker__month {
+    padding: 8px;
+    margin: 0;
+}
+
+.dark-datepicker-popper .react-datepicker__week {
+    display: flex;
+    justify-content: space-around;
+}
+
+.dark-datepicker-popper .react-datepicker__day {
+    color: #e5e7eb;
+    font-size: 13px;
+    width: 36px;
+    height: 36px;
+    line-height: 36px;
+    margin: 2px;
+    border-radius: 8px;
+    transition: all 0.15s ease;
+}
+
+.dark-datepicker-popper .react-datepicker__day:hover {
+    background-color: #262626;
+    color: #fff;
+}
+
+.dark-datepicker-popper .react-datepicker__day--selected,
+.dark-datepicker-popper .react-datepicker__day--keyboard-selected {
+    background-color: #10b981 !important;
+    color: #000 !important;
+    font-weight: 600;
+}
+
+.dark-datepicker-popper .react-datepicker__day--today {
+    background-color: #1f2937;
+    font-weight: 600;
+}
+
+.dark-datepicker-popper .react-datepicker__day--outside-month {
+    color: #4b5563;
+}
+
+.dark-datepicker-popper .react-datepicker__day--disabled {
+    color: #374151 !important;
+    cursor: not-allowed;
+}
+
+.dark-datepicker-popper .react-datepicker__navigation {
+    top: 12px;
+}
+
+.dark-datepicker-popper .react-datepicker__navigation-icon::before {
+    border-color: #9ca3af;
+}
+
+.dark-datepicker-popper .react-datepicker__navigation:hover .react-datepicker__navigation-icon::before {
+    border-color: #10b981;
+}
+
+.dark-datepicker-popper .react-datepicker__triangle {
+    display: none;
+}
+
+.dark-datepicker-popper .react-datepicker__month-dropdown-container,
+.dark-datepicker-popper .react-datepicker__year-dropdown-container {
+    margin: 0 4px;
+}
+
+.dark-datepicker-popper .react-datepicker__month-select,
+.dark-datepicker-popper .react-datepicker__year-select {
+    background: linear-gradient(135deg, #1a1a1a 0%, #262626 100%);
+    border: 1px solid #374151;
+    border-radius: 8px;
+    color: #e5e7eb;
+    padding: 6px 28px 6px 32px;
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    appearance: none;
+    -webkit-appearance: none;
+    -moz-appearance: none;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
+}
+
+.dark-datepicker-popper .react-datepicker__month-select:hover,
+.dark-datepicker-popper .react-datepicker__year-select:hover {
+    background: linear-gradient(135deg, #262626 0%, #2d2d2d 100%);
+    border-color: #10b981;
+    box-shadow: 0 0 0 2px rgba(16, 185, 129, 0.15), 0 4px 8px rgba(0, 0, 0, 0.4);
+    transform: translateY(-1px);
+}
+
+.dark-datepicker-popper .react-datepicker__month-select:focus,
+.dark-datepicker-popper .react-datepicker__year-select:focus {
+    outline: none;
+    border-color: #10b981;
+    box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.25), 0 4px 12px rgba(16, 185, 129, 0.2);
+    background: linear-gradient(135deg, #1f2937 0%, #2d2d2d 100%);
+}
+
+.dark-datepicker-popper .react-datepicker__month-select:active,
+.dark-datepicker-popper .react-datepicker__year-select:active {
+    transform: translateY(0);
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
+}
+
+/* Dropdown Options Styling */
+.dark-datepicker-popper .react-datepicker__month-select option,
+.dark-datepicker-popper .react-datepicker__year-select option {
+    background-color: #1a1a1a;
+    color: #e5e7eb;
+    padding: 8px;
+    font-weight: 500;
+}
+
+.dark-datepicker-popper .react-datepicker__month-select option:hover,
+.dark-datepicker-popper .react-datepicker__year-select option:hover {
+    background-color: #10b981;
+    color: #000;
+}
+`;
 
 // Dark MUI Theme (same as Reports.jsx)
 const darkMuiTheme = createTheme({
@@ -96,10 +303,10 @@ async function fetchDailyReport(date) {
 
                 workingMins = totalMins - breakMins;
 
-                // Determine status
-                if (workingMins >= 8 * 60) status = "Present";
+                // Determine status: <5hrs=Absent, 5-8hrs=Half Day, ≥8hrs=Full Day
+                if (workingMins >= 8 * 60) status = "Full Day";
                 else if (workingMins >= 5 * 60) status = "Half Day";
-                else if (workingMins > 0) status = "Short Day";
+                // Less than 5 hours stays Absent
             }
         }
 
@@ -121,12 +328,10 @@ async function fetchDailyReport(date) {
 // Get status badge class
 function getStatusBadge(status) {
     switch (status) {
-        case "Present":
+        case "Full Day":
             return "bg-emerald-500/15 text-emerald-400";
         case "Half Day":
             return "bg-amber-500/15 text-amber-400";
-        case "Short Day":
-            return "bg-orange-500/15 text-orange-400";
         case "Absent":
             return "bg-red-500/15 text-red-400";
         default:
@@ -137,11 +342,31 @@ function getStatusBadge(status) {
 // Component
 export default function DailyReport({ onGenerated }) {
     const [rows, setRows] = useState([]);
-    const [selectedDate, setSelectedDate] = useState("");
+    const [selectedDate, setSelectedDate] = useState(null);
     const [isGenerating, setIsGenerating] = useState(false);
     const [isExporting, setIsExporting] = useState(false);
     const [exportType, setExportType] = useState("");
     const [error, setError] = useState(null);
+
+    const CustomDateInput = ({ value, onClick }) => (
+        <input
+            type="text"
+            className="react-datepicker-custom-input"
+            onClick={onClick}
+            value={value}
+            readOnly={true}
+            placeholder="Select date"
+        />
+    );
+
+    // Format date for API call (YYYY-MM-DD)
+    const formatDateForAPI = (date) => {
+        if (!date) return "";
+        const year = date.getFullYear();
+        const month = String(date.getMonth() + 1).padStart(2, "0");
+        const day = String(date.getDate()).padStart(2, "0");
+        return `${year}-${month}-${day}`;
+    };
 
     const generateReport = async () => {
         try {
@@ -153,12 +378,12 @@ export default function DailyReport({ onGenerated }) {
             setError(null);
             setIsGenerating(true);
 
-            const data = await fetchDailyReport(selectedDate);
+            const dateStr = formatDateForAPI(selectedDate);
+            const data = await fetchDailyReport(dateStr);
             setRows(data);
 
-            // Parse date for display
-            const dateObj = new Date(selectedDate);
-            onGenerated?.(dateObj.toLocaleDateString("en-US", {
+            // Format date for display
+            onGenerated?.(selectedDate.toLocaleDateString("en-US", {
                 weekday: "long",
                 year: "numeric",
                 month: "long",
@@ -427,30 +652,53 @@ export default function DailyReport({ onGenerated }) {
 
     // Summary stats
     const stats = useMemo(() => {
-        const present = tableData.filter(r => r.status === "Present").length;
+        const fullDay = tableData.filter(r => r.status === "Full Day").length;
         const halfDay = tableData.filter(r => r.status === "Half Day").length;
         const absent = tableData.filter(r => r.status === "Absent").length;
-        return { present, halfDay, absent };
+        return { fullDay, halfDay, absent };
     }, [tableData]);
 
     return (
         <div className="w-full h-full flex flex-col gap-3">
 
+            {/* Inject DatePicker Styles */}
+            <style>{datePickerStyles}</style>
+
             {/* Top Bar */}
-            <div className="flex items-center gap-2 bg-nero-800 border border-nero-700 rounded-md px-3 py-2">
+            <div className="flex items-center gap-2 bg-nero-800 border border-nero-700 rounded-md px-3 py-2" style={{ position: "relative", zIndex: 100 }}>
 
                 {/* Date Picker */}
-                <input
-                    type="date"
-                    value={selectedDate}
-                    onChange={(e) => setSelectedDate(e.target.value)}
-                    disabled={isGenerating}
-                    className="appearance-none bg-nero-900 border border-nero-700 px-3 py-1.5 text-sm rounded-md disabled:opacity-50 disabled:cursor-not-allowed"
-                />
+                <div className="dark-datepicker-wrapper relative">
+                    <DatePicker
+                        selected={selectedDate}
+                        onChange={(date) => setSelectedDate(date)}
+                        dateFormat="dd MMM yyyy"
+                        placeholderText="Select date"
+                        disabled={isGenerating}
+                        dropdownMode="select"
+                        maxDate={new Date()}
+                        minDate={new Date("2024-01-01")}
+                        popperClassName="dark-datepicker-popper"
+                        popperPlacement="bottom-start"
+                        portalId="root"
+                        customInput={<CustomDateInput />}
+                    />
+                    <CalendarTodayIcon
+                        style={{
+                            position: "absolute",
+                            right: "10px",
+                            top: "49%",
+                            transform: "translateY(-50%)",
+                            color: "#6b7280",
+                            fontSize: "18px",
+                            pointerEvents: "none",
+                        }}
+                    />
+                </div>
 
                 {/* KPIs */}
                 <div className="flex gap-4 text-sm text-nero-400 ml-3">
-                    <span className="text-emerald-400">Present: {stats.present}</span>
+                    <span className="text-emerald-400">Full Day: {stats.fullDay}</span>
                     <span className="text-amber-400">Half Day: {stats.halfDay}</span>
                     <span className="text-red-400">Absent: {stats.absent}</span>
                     <span className="text-nero-500">|</span>

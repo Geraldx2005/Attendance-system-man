@@ -250,7 +250,7 @@ ipcMain.handle("api:get-attendance", (_, { employeeId, month }) => {
         if (inMin !== null && outMin !== null && outMin > inMin) {
           workedMinutes = outMin - inMin;
 
-          if (workedMinutes >= 8 * 60) status = "Present";
+          if (workedMinutes >= 8 * 60) status = "Full Day";
           else if (workedMinutes >= 5 * 60) status = "Half Day";
         }
 
@@ -298,7 +298,7 @@ ipcMain.handle("api:get-attendance", (_, { employeeId, month }) => {
       if (inMin !== null && outMin !== null && outMin > inMin) {
         workedMinutes = outMin - inMin;
 
-        if (workedMinutes >= 8 * 60) status = "Present";
+        if (workedMinutes >= 8 * 60) status = "Full Day";
         else if (workedMinutes >= 5 * 60) status = "Half Day";
       }
 

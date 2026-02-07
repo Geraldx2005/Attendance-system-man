@@ -15,7 +15,7 @@ function toMinutes(time) {
 }
 
 function calcDuration(inTime, outTime) {
-  const inMin  = toMinutes(inTime);
+  const inMin = toMinutes(inTime);
   const outMin = toMinutes(outTime);
   if (inMin === null || outMin === null || outMin <= inMin) return null;
   const diff = outMin - inMin;
@@ -32,10 +32,10 @@ function toCalendarEvent(d) {
     start: d.date,
     extendedProps: { firstIn: d.firstIn, lastOut: d.lastOut },
     backgroundColor:
-      d.status === "Present"  ? "#2e7d32"
-      : d.status === "Half Day" ? "#b7791f"
-      : d.status === "Absent"   ? "#8b1d1d"
-      : "transparent",
+      d.status === "Full Day" ? "#2e7d32"
+        : d.status === "Half Day" ? "#b7791f"
+          : d.status === "Absent" ? "#8b1d1d"
+            : "transparent",
     borderColor: "transparent",
   };
 }
@@ -63,7 +63,7 @@ function renderAttendanceEvent(info) {
 function buildDayTimelineEvents(date, logs) {
   if (!logs || logs.length === 0) {
     const anchorStart = new Date(`${date}T08:00:00`);
-    const anchorEnd   = new Date(anchorStart);
+    const anchorEnd = new Date(anchorStart);
     anchorEnd.setMinutes(anchorEnd.getMinutes() + 1);
     return [{
       id: "anchor", title: "", start: anchorStart, end: anchorEnd,
@@ -73,9 +73,9 @@ function buildDayTimelineEvents(date, logs) {
 
   const sorted = [...logs].sort((a, b) => a.time.localeCompare(b.time));
   return sorted.map((punch, i) => {
-    const isIn  = i % 2 === 0;
+    const isIn = i % 2 === 0;
     const start = new Date(`${punch.date}T${punch.time}`);
-    const end   = new Date(start);
+    const end = new Date(start);
     end.setMinutes(end.getMinutes() + 30);
 
     return {
@@ -85,7 +85,7 @@ function buildDayTimelineEvents(date, logs) {
         : `Check Out · ${to12Hour(punch.time)}`,
       start, end,
       backgroundColor: isIn ? "#16a34a" : "#dc2626",
-      borderColor:     isIn ? "#16a34a" : "#dc2626",
+      borderColor: isIn ? "#16a34a" : "#dc2626",
       textColor: "#fff",
       classNames: ["day-log-event"],
     };
@@ -94,13 +94,13 @@ function buildDayTimelineEvents(date, logs) {
 
 /* ─── Summary calculator ──────────────────────────────────────────────────── */
 function calcSummary(data) {
-  let present = 0, halfDay = 0, absent = 0;
+  let fullDay = 0, halfDay = 0, absent = 0;
   data.forEach((d) => {
-    if      (d.status === "Present")  present++;
+    if (d.status === "Full Day") fullDay++;
     else if (d.status === "Half Day") halfDay++;
-    else if (d.status === "Absent")   absent++;
+    else if (d.status === "Absent") absent++;
   });
-  return { present, halfDay, absent, totalPresent: present + halfDay * 0.5 };
+  return { fullDay, halfDay, absent, totalPresent: fullDay + halfDay * 0.5 };
 }
 
 /* ─── Component ───────────────────────────────────────────────────────────── */
@@ -110,9 +110,9 @@ export default function AttendanceCalendar({
   onViewChange,
   onDayStats,
 }) {
-  const [events, setEvents]           = useState([]);
-  const [loading, setLoading]         = useState(false);
-  const [error, setError]             = useState(null);
+  const [events, setEvents] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
 
   const [currentView, setCurrentView] = useState("dayGridMonth");
   const [currentDate, setCurrentDate] = useState(null);
@@ -121,22 +121,22 @@ export default function AttendanceCalendar({
   );
   const [, forceRerender] = useState(0);
 
-  const calendarRef    = useRef(null);
-  const requestRef     = useRef(0);
-  const monthReadyRef  = useRef(false);
+  const calendarRef = useRef(null);
+  const requestRef = useRef(0);
+  const monthReadyRef = useRef(false);
 
   // ── refs that let the IPC handler trigger a re-fetch without being in
   //     its own dep array (breaks the churn cycle)
-  const currentViewRef  = useRef(currentView);
-  const currentDateRef  = useRef(currentDate);
+  const currentViewRef = useRef(currentView);
+  const currentDateRef = useRef(currentDate);
   const currentMonthRef = useRef(currentMonth);
-  const employeeRef     = useRef(employee);
+  const employeeRef = useRef(employee);
 
   // Keep refs in sync
-  useEffect(() => { currentViewRef.current  = currentView;  }, [currentView]);
-  useEffect(() => { currentDateRef.current  = currentDate;  }, [currentDate]);
+  useEffect(() => { currentViewRef.current = currentView; }, [currentView]);
+  useEffect(() => { currentDateRef.current = currentDate; }, [currentDate]);
   useEffect(() => { currentMonthRef.current = currentMonth; }, [currentMonth]);
-  useEffect(() => { employeeRef.current     = employee;     }, [employee]);
+  useEffect(() => { employeeRef.current = employee; }, [employee]);
 
   // ── shared fetch logic ─────────────────────────────────────────────────
   const doFetch = useCallback(() => {
@@ -148,8 +148,8 @@ export default function AttendanceCalendar({
     setError(null);
 
     const reqId = ++requestRef.current;
-    const view  = currentViewRef.current;
-    const date  = currentDateRef.current;
+    const view = currentViewRef.current;
+    const date = currentDateRef.current;
     const month = currentMonthRef.current;
 
     if (view === "timeGridDay" && date) {
@@ -254,9 +254,9 @@ export default function AttendanceCalendar({
         initialView="dayGridMonth"
 
         headerToolbar={{
-          left:   "dayGridMonth,timeGridDay",
+          left: "dayGridMonth,timeGridDay",
           center: "title",
-          right:  "prev today next",
+          right: "prev today next",
         }}
 
         fixedWeekCount={false}

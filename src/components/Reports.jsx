@@ -2,16 +2,149 @@ import { useState, useMemo } from "react";
 import { MaterialReactTable } from "material-react-table";
 import { ThemeProvider, createTheme } from "@mui/material/styles";
 import CssBaseline from "@mui/material/CssBaseline";
+import CalendarTodayIcon from "@mui/icons-material/CalendarToday";
+import DatePicker from "react-datepicker";
+import "react-datepicker/dist/react-datepicker.css";
 import SettingsDialog from "./SettingsDialog";
 import * as XLSX from "xlsx";
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 import { apiFetch } from "../utils/api";
 
-const MONTH_SHORT = {
-  January: "Jan", February: "Feb", March: "Mar", April: "Apr", May: "May", June: "Jun",
-  July: "Jul", August: "Aug", September: "Sep", October: "Oct", November: "Nov", December: "Dec",
-};
+// React-Datepicker (Month Picker)
+const monthPickerStyles = `
+.dark-monthpicker-wrapper {
+    position: relative;
+    z-index: 9999;
+}
+
+.dark-monthpicker-wrapper .react-datepicker-wrapper {
+    width: 160px;
+}
+
+.dark-datepicker-wrapper .react-datepicker__input-container {
+    width: 100%;
+}
+
+.dark-monthpicker-wrapper .react-datepicker__input-container .react-datepicker-custom-input {
+    background-color: #0f0f0f;
+    border: 2px solid #262626;
+    border-radius: 8px;
+    color: #e5e7eb;
+    padding: 8px 12px;
+    padding-right: 30px;
+    font-size: 14px;
+    width: 100%;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.dark-monthpicker-wrapper .react-datepicker__input-container .react-datepicker-custom-input:hover {
+    border-color: rgba(16, 185, 129, 0.5);
+}
+
+.dark-monthpicker-wrapper .react-datepicker__input-container .react-datepicker-custom-input:focus {
+    outline: none;
+    border-color: rgba(16, 185, 129, 0.8);
+}
+
+.dark-monthpicker-wrapper .react-datepicker__input-container .react-datepicker-custom-input::placeholder {
+    color: #6b7280;
+}
+
+/* Popper */
+.dark-monthpicker-popper {
+    z-index: 9999 !important;
+}
+
+.dark-monthpicker-popper .react-datepicker {
+    background-color: #141414;
+    border: 1px solid #262626;
+    border-radius: 12px;
+    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.6);
+    font-family: inherit;
+    overflow: hidden;
+}
+
+.dark-monthpicker-popper .react-datepicker__header {
+    background-color: #1a1a1a;
+    border-bottom: 1px solid #262626;
+    padding: 12px;
+}
+
+.dark-monthpicker-popper .react-datepicker__current-month,
+.dark-monthpicker-popper .react-datepicker-year-header {
+    color: #e5e7eb;
+    font-size: 15px;
+    font-weight: 600;
+}
+
+.dark-monthpicker-popper .react-datepicker__month-wrapper {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    padding: 2px;
+}
+
+/* Month text (base) */
+.dark-monthpicker-popper .react-datepicker__month-text {
+    color: #e5e7eb;
+    font-size: 13px;
+    width: 70px;
+    padding: 4px;
+    margin: 4px;
+    border-radius: 5px;
+    transition: all 0.15s ease;
+}
+
+/* Hover (non-disabled only) */
+.dark-monthpicker-popper
+.react-datepicker__month-text:hover:not(.react-datepicker__month-text--disabled) {
+    background-color: #262626;
+    color: #ffffff;
+}
+
+/* Selected */
+.dark-monthpicker-popper .react-datepicker__month-text--selected,
+.dark-monthpicker-popper .react-datepicker__month-text--keyboard-selected {
+    background-color: #10b981 !important;
+    color: #000 !important;
+    font-weight: 600;
+}
+
+/* Disabled months (RED) */
+.dark-monthpicker-popper .react-datepicker__month-text--disabled {
+    color: #374151 !important;
+    opacity: 1;
+    cursor: not-allowed;
+}
+
+/* Kill hover on disabled */
+.dark-monthpicker-popper
+.react-datepicker__month-text--disabled:hover {
+    background-color: transparent;
+}
+
+/* Navigation */
+.dark-monthpicker-popper .react-datepicker__navigation {
+    top: 10px;
+}
+
+.dark-monthpicker-popper .react-datepicker__navigation-icon::before {
+    border-color: #9ca3af;
+}
+
+.dark-monthpicker-popper
+.react-datepicker__navigation:hover
+.react-datepicker__navigation-icon::before {
+    border-color: #10b981;
+}
+
+.dark-monthpicker-popper .react-datepicker__triangle {
+    display: none;
+}
+`;
+
 
 const MONTHS = [
   "January", "February", "March", "April", "May", "June",
@@ -63,7 +196,7 @@ async function fetchMonthlyReport(month, year) {
     let absent = 0;
 
     for (const d of days) {
-      if (d.status === "Present") present++;
+      if (d.status === "Full Day") present++;
       else if (d.status === "Half Day") halfDay++;
       else if (d.status === "Absent") absent++;
     }
@@ -83,23 +216,42 @@ async function fetchMonthlyReport(month, year) {
 // Component
 export default function Reports({ onGenerated }) {
   const [rows, setRows] = useState([]);
-  const [month, setMonth] = useState("");
-  const [year, setYear] = useState("2026");
+  const [selectedDate, setSelectedDate] = useState(null);
   const [isGenerating, setIsGenerating] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
   const [exportType, setExportType] = useState(""); // "excel" or "pdf"
   const [error, setError] = useState(null);
 
+  const CustomDateInput = ({ value, onClick }) => (
+    <input
+      type="text"
+      className="react-datepicker-custom-input"
+      onClick={onClick}
+      value={value}
+      readOnly={true}
+      placeholder="Select month"
+    />
+  );
+
+  // Get month name and year from selected date
+  const getMonthYear = () => {
+    if (!selectedDate) return { month: null, year: null };
+    const monthName = MONTHS[selectedDate.getMonth()];
+    const year = String(selectedDate.getFullYear());
+    return { month: monthName, year };
+  };
+
   const generateReport = async () => {
     try {
-      if (!month || !year) {
-        setError("Please select both month and year");
+      if (!selectedDate) {
+        setError("Please select a month");
         return;
       }
 
       setError(null);
       setIsGenerating(true);
 
+      const { month, year } = getMonthYear();
       const data = await fetchMonthlyReport(month, year);
       setRows(data);
 
@@ -209,8 +361,8 @@ export default function Reports({ onGenerated }) {
       const wb = XLSX.utils.book_new();
       XLSX.utils.book_append_sheet(wb, ws, "Monthly Attendance");
 
-      const m = MONTH_SHORT[month] || month;
-      XLSX.writeFile(wb, `Monthly Attendance Report ${m}-${year}.xlsx`);
+      const { month, year } = getMonthYear();
+      XLSX.writeFile(wb, `Monthly Attendance Report ${month}-${year}.xlsx`);
 
       setError(null);
     } catch (err) {
@@ -238,7 +390,7 @@ export default function Reports({ onGenerated }) {
 
       const pageWidth = doc.internal.pageSize.getWidth();
       const pageHeight = doc.internal.pageSize.getHeight();
-      const m = MONTH_SHORT[month] || month;
+      const { month: m, year } = getMonthYear();
 
       // COLORS (STRICT B/W)
       const COLORS = {
@@ -475,36 +627,41 @@ export default function Reports({ onGenerated }) {
 
   return (
     <>
+      {/* Inject MonthPicker Styles */}
+      <style>{monthPickerStyles}</style>
+
       <div className="w-full h-full flex flex-col gap-3">
 
         {/* Top Bar */}
-        <div className="flex items-center gap-2 bg-nero-800 border border-nero-700 rounded-md px-3 py-2">
+        <div className="flex items-center gap-2 bg-nero-800 border border-nero-700 rounded-md px-3 py-2" style={{ position: "relative", zIndex: 100 }}>
 
-          {/* Month + Year (STUCK TOGETHER) */}
-          <div className="flex">
-            <select
-              value={month}
-              onChange={(e) => setMonth(e.target.value)}
+          {/* Month Picker */}
+          <div className="dark-monthpicker-wrapper relative">
+            <DatePicker
+              selected={selectedDate}
+              onChange={(date) => setSelectedDate(date)}
+              dateFormat="MMM yyyy"
+              placeholderText="Select month"
               disabled={isGenerating}
-              className="appearance-none bg-nero-900 border border-nero-700 border-r-0 px-2 py-1 text-sm rounded-l-md disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              <option value="" disabled>Select month</option>
-              {MONTHS.map(m => (
-                <option key={m} value={m}>{m}</option>
-              ))}
-            </select>
-
-            <select
-              value={year}
-              onChange={(e) => setYear(e.target.value)}
-              disabled={isGenerating}
-              className="appearance-none bg-nero-900 border border-nero-700 border-l-2 px-2 py-1 text-sm rounded-r-md disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              <option value="" disabled>Select year</option>
-              {["2024", "2025", "2026", "2027", "2028", "2029", "2030"].map(y => (
-                <option key={y} value={y}>{y}</option>
-              ))}
-            </select>
+              showMonthYearPicker
+              maxDate={new Date()}
+              minDate={new Date("2024-01-01")}
+              popperClassName="dark-monthpicker-popper"
+              popperPlacement="bottom-start"
+              portalId="root"
+              customInput={<CustomDateInput />}
+            />
+            <CalendarTodayIcon
+              style={{
+                position: "absolute",
+                right: "10px",
+                top: "49%", /* Adjusted from 49% to 50% for better vertical centering */
+                transform: "translateY(-50%)",
+                color: "#6b7280",
+                fontSize: "18px",
+                pointerEvents: "none",
+              }}
+            />
           </div>
 
           {/* KPI */}
@@ -515,7 +672,7 @@ export default function Reports({ onGenerated }) {
 
           <button
             onClick={generateReport}
-            disabled={isGenerating || !month || !year}
+            disabled={isGenerating || !selectedDate}
             className="ml-auto px-4 py-2 rounded-md bg-emerald-600 hover:bg-emerald-500 text-sm font-medium text-black disabled:opacity-50 disabled:cursor-not-allowed disabled:bg-emerald-600 flex items-center gap-2"
           >
             {isGenerating ? (

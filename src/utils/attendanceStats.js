@@ -29,7 +29,7 @@ export function deriveAttendanceFromPunches(punches) {
     workedMinutes = outMin - inMin;
 
     if (workedMinutes >= 8 * 60) {
-      status = "Present";
+      status = "Full Day";
     } else if (workedMinutes >= 5 * 60) {
       status = "Half Day";
     }

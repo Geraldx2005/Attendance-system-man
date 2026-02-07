@@ -302,8 +302,8 @@ function App() {
                   <button
                     onClick={() => setReportTab("monthly")}
                     className={`px-4 py-1.5 text-sm font-medium rounded transition-colors cursor-pointer ${reportTab === "monthly"
-                        ? "bg-nero-700 text-nero-200"
-                        : "text-nero-500 hover:text-nero-300"
+                      ? "bg-nero-700 text-nero-200"
+                      : "text-nero-500 hover:text-nero-300"
                       }`}
                   >
                     Monthly
@@ -311,8 +311,8 @@ function App() {
                   <button
                     onClick={() => setReportTab("daily")}
                     className={`px-4 py-1.5 text-sm font-medium rounded transition-colors cursor-pointer ${reportTab === "daily"
-                        ? "bg-nero-700 text-nero-200"
-                        : "text-nero-500 hover:text-nero-300"
+                      ? "bg-nero-700 text-nero-200"
+                      : "text-nero-500 hover:text-nero-300"
                       }`}
                   >
                     Daily
@@ -390,7 +390,7 @@ function App() {
                     {attendanceView === "dayGridMonth" && (
                       <>
                         <span className="text-emerald-300">
-                          Present: {attendanceSummary?.present ?? 0}
+                          Full Day: {attendanceSummary?.fullDay ?? 0}
                         </span>
 
                         <span className="text-amber-200">
