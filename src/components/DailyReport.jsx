@@ -49,7 +49,7 @@ const datePickerStyles = `
 }
 
 .dark-datepicker-wrapper .react-datepicker__input-container .react-datepicker-custom-input::placeholder {
-    color: #6b7280;
+    color: #CBD5E1;
 }
 
 .dark-datepicker-popper {
@@ -134,7 +134,7 @@ const datePickerStyles = `
 }
 
 .dark-datepicker-popper .react-datepicker__day--disabled {
-    color: #374151 !important;
+    color: #838E9A !important;
     cursor: not-allowed;
 }
 
@@ -689,7 +689,7 @@ export default function DailyReport({ onGenerated }) {
                             right: "10px",
                             top: "49%",
                             transform: "translateY(-50%)",
-                            color: "#6b7280",
+                            color: "#CBD5E1",
                             fontSize: "18px",
                             pointerEvents: "none",
                         }}

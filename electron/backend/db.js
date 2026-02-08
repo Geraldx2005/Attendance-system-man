@@ -1,6 +1,8 @@
 import Database from "better-sqlite3";
 import path from "path";
 import { fileURLToPath } from "url";
+import fs from "fs";
+import logger from "../utils/logger.js";
 
 // ESM paths
 const __filename = fileURLToPath(import.meta.url);
@@ -21,10 +23,24 @@ export function initDB() {
   const USER_DATA_PATH = process.env.USER_DATA_PATH;
   const dbPath = path.join(USER_DATA_PATH, "attendance.db");
 
+  logger.info("Initializing database", { path: dbPath });
   console.log("Initializing database at:", dbPath);
 
   // Open DB
   db = new Database(dbPath);
+
+  // Set restrictive file permissions (owner read/write only)
+  try {
+    if (process.platform !== 'win32') {
+      // On Unix-like systems, set permissions to 600 (rw-------)
+      fs.chmodSync(dbPath, 0o600);
+      logger.info("Set restrictive database file permissions");
+    }
+    // Note: Windows file permissions are handled differently via NTFS ACLs
+    // For production Windows deployment, consider using icacls or similar
+  } catch (err) {
+    logger.warn("Failed to set database file permissions", { error: err.message });
+  }
 
   // PRAGMAS
   db.pragma("journal_mode = WAL");
@@ -64,6 +80,26 @@ export function initDB() {
       ON attendance_logs(date);
   `);
 
+  // Create backups directory
+  const backupDir = path.join(USER_DATA_PATH, "backups");
+  if (!fs.existsSync(backupDir)) {
+    fs.mkdirSync(backupDir, { recursive: true });
+    logger.info("Created database backup directory", { path: backupDir });
+  }
+
+  // Perform integrity check
+  try {
+    const integrityCheck = db.pragma("integrity_check");
+    if (integrityCheck[0]?.integrity_check === "ok") {
+      logger.info("Database integrity check passed");
+    } else {
+      logger.warn("Database integrity check failed", { result: integrityCheck });
+    }
+  } catch (err) {
+    logger.error("Failed to perform integrity check", { error: err.message });
+  }
+
+  logger.info("Database initialized successfully");
   console.log("✓ Database initialized successfully");
 
   return db;

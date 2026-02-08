@@ -64,5 +64,4 @@ contextBridge.exposeInMainWorld("api", {
   updateEmployeeName: (employeeId, name) => ipcRenderer.invoke("api:update-employee", { employeeId, name }),
 });
 
-/* Internal token (debug) */
-contextBridge.exposeInMainWorld("__INTERNAL_TOKEN__", INTERNAL_TOKEN);
+/* Internal token removed - not needed in renderer context */

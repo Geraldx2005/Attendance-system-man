@@ -2,8 +2,12 @@ import { useEffect, useState, useRef } from "react";
 import { toast } from "../utils/ToastHost";
 
 // Icons
-import { IoDocumentTextOutline, IoClose, IoCheckmarkCircle } from "react-icons/io5";
+import { IoDocumentTextOutline, IoClose, IoCheckmarkCircle, IoWarning } from "react-icons/io5";
 import { MdOutlineUploadFile } from "react-icons/md";
+
+// File size limits (in bytes)
+const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
+const WARNING_FILE_SIZE = 8 * 1024 * 1024; // 8MB - show warning above this
 
 export default function UploadDialog({ open, onClose }) {
   const [dragActive, setDragActive] = useState(false);
@@ -82,6 +86,12 @@ export default function UploadDialog({ open, onClose }) {
 
   /* File validation */
   const handleFileSelection = (file) => {
+    // File size validation
+    if (file.size > MAX_FILE_SIZE) {
+      toast(`File size (${formatFileSize(file.size)}) exceeds 10MB limit`, "error");
+      return;
+    }
+
     const validTypes = [
       "text/csv",
       "application/vnd.ms-excel",
@@ -94,6 +104,11 @@ export default function UploadDialog({ open, onClose }) {
     if (!validTypes.includes(file.type) && !validExtensions.includes(fileExtension)) {
       toast("Please select a CSV or Excel file", "error");
       return;
+    }
+
+    // Show warning for large files
+    if (file.size > WARNING_FILE_SIZE) {
+      toast(`Large file (${formatFileSize(file.size)}) - upload may take longer`, "warning");
     }
 
     setSelectedFile(file);

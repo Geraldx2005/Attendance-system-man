@@ -3,7 +3,10 @@ import path from "path";
 import { fileURLToPath } from "url";
 import Store from "electron-store";
 import fs from "fs";
+import crypto from "crypto";
 import { timeToMinutes as utilTimeToMinutes } from "./dateTimeUtils.js";
+import { validateEmployeeName, sanitizeFilename, validateFileSize, validateFileExtension } from "./utils/validator.js";
+import logger from "./utils/logger.js";
 
 let db;
 
@@ -30,7 +33,8 @@ const DEFAULT_CSV_PATH = "C:\\essl\\data";
 
 /* ================= INTERNAL TOKEN ================= */
 function generateInternalToken() {
-  return Math.random().toString(36).slice(2) + Date.now();
+  // Use cryptographically secure random bytes instead of Math.random()
+  return crypto.randomBytes(32).toString('hex');
 }
 const INTERNAL_TOKEN = generateInternalToken();
 
@@ -132,10 +136,11 @@ ipcMain.handle("api:get-employees", () => {
       )
       .all();
 
+    logger.debug("Fetched employees list", { count: employees.length });
     return employees;
   } catch (err) {
-    console.error("api:get-employees error:", err);
-    throw err;
+    logger.error("Failed to fetch employees", { error: err.message });
+    throw new Error("Failed to fetch employees list");
   }
 });
 
@@ -157,6 +162,7 @@ ipcMain.handle("api:get-logs", (_, { employeeId, date, from, to }) => {
       `,
         )
         .all(employeeId, date);
+      logger.debug("Fetched logs for single date", { employeeId, date, count: rows.length });
     } else if (from && to) {
       // Range punches (logs console)
       rows = db
@@ -170,6 +176,7 @@ ipcMain.handle("api:get-logs", (_, { employeeId, date, from, to }) => {
       `,
         )
         .all(employeeId, from, to);
+      logger.debug("Fetched logs for date range", { employeeId, from, to, count: rows.length });
     } else {
       // All punches (fallback)
       rows = db
@@ -182,12 +189,13 @@ ipcMain.handle("api:get-logs", (_, { employeeId, date, from, to }) => {
       `,
         )
         .all(employeeId);
+      logger.debug("Fetched all logs", { employeeId, count: rows.length });
     }
 
     return rows;
   } catch (err) {
-    console.error("api:get-logs error:", err);
-    throw err;
+    logger.error("Failed to fetch logs", { employeeId, error: err.message });
+    throw new Error("Failed to fetch attendance logs");
   }
 });
 
@@ -263,6 +271,7 @@ ipcMain.handle("api:get-attendance", (_, { employeeId, month }) => {
         };
       });
 
+      logger.debug("Fetched attendance for month", { employeeId, month, days: result.length });
       return result;
     }
 
@@ -311,19 +320,25 @@ ipcMain.handle("api:get-attendance", (_, { employeeId, month }) => {
       };
     });
 
+    logger.debug("Fetched attendance (all dates)", { employeeId, days: result.length });
     return result;
   } catch (err) {
-    console.error("api:get-attendance error:", err);
-    throw err;
+    logger.error("Failed to fetch attendance", { employeeId, month, error: err.message });
+    throw new Error("Failed to fetch attendance data");
   }
 });
 
 // POST /api/employees/:employeeId (update name)
 ipcMain.handle("api:update-employee", (_, { employeeId, name }) => {
   try {
-    if (!name || !name.trim()) {
-      throw new Error("Name required");
+    // Validate employee name using centralized validator
+    const validation = validateEmployeeName(name);
+    if (!validation.valid) {
+      logger.warn("Employee name validation failed", { employeeId, error: validation.error });
+      throw new Error(validation.error);
     }
+
+    const validatedName = validation.value;
 
     db.prepare(
       `
@@ -331,15 +346,19 @@ ipcMain.handle("api:update-employee", (_, { employeeId, name }) => {
     SET name = ?
     WHERE id = ?
   `,
-    ).run(name.trim(), employeeId);
+    ).run(validatedName, employeeId);
+
+    // Audit log for employee name changes
+    logger.audit("Employee name updated", { employeeId, newName: validatedName });
 
     // Notify UI to refresh lists
     notifyAttendanceInvalidation({ employeeId });
 
     return { ok: true };
   } catch (err) {
-    console.error("api:update-employee error:", err);
-    throw err;
+    logger.error("Failed to update employee name", { employeeId, error: err.message });
+    // Return sanitized error message
+    throw new Error(err.message || "Failed to update employee name");
   }
 });
 
@@ -349,6 +368,28 @@ ipcMain.handle("upload-file", async (_, { name, buffer, type }) => {
     // Send initial progress
     sendUploadProgress({ phase: "reading", progress: 0, message: "Preparing file..." });
 
+    // Validate file size (10MB limit)
+    const bufferSize = buffer.length;
+    const sizeValidation = validateFileSize(bufferSize, 10);
+    if (!sizeValidation.valid) {
+      logger.warn("File upload rejected - size validation failed", { error: sizeValidation.error, size: bufferSize });
+      throw new Error(sizeValidation.error);
+    }
+
+    // Validate file extension
+    const extValidation = validateFileExtension(name);
+    if (!extValidation.valid) {
+      logger.warn("File upload rejected - extension validation failed", { error: extValidation.error, filename: name });
+      throw new Error(extValidation.error);
+    }
+
+    // Sanitize filename to prevent path traversal
+    const sanitizedName = sanitizeFilename(name);
+    if (!sanitizedName) {
+      logger.warn("File upload rejected - filename sanitization failed", { filename: name });
+      throw new Error("Invalid filename");
+    }
+
     // Ensure CSV_PATH exists
     const csvPath = ensureCSVPath();
     if (!fs.existsSync(csvPath)) {
@@ -357,23 +398,24 @@ ipcMain.handle("upload-file", async (_, { name, buffer, type }) => {
 
     sendUploadProgress({ phase: "reading", progress: 20, message: "Reading file..." });
 
-    // Create unique filename with timestamp
-    const timestamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
-    const ext = path.extname(name).toLowerCase();
+    // Generate secure random filename using crypto instead of timestamp
+    const randomName = crypto.randomBytes(8).toString('hex');
+    const ext = extValidation.extension;
     
     // Only process CSV files directly, for Excel files we need conversion
     let targetPath;
     if (ext === ".csv") {
-      targetPath = path.join(csvPath, `attendance_upload_${timestamp}.csv`);
+      targetPath = path.join(csvPath, `attendance_upload_${randomName}.csv`);
       
       // Write the buffer to file
       const uint8Array = new Uint8Array(buffer);
       fs.writeFileSync(targetPath, uint8Array);
       
+      logger.info("CSV file uploaded", { filename: sanitizedName, path: targetPath, size: bufferSize });
       sendUploadProgress({ phase: "reading", progress: 40, message: "File saved..." });
     } else {
       // For Excel files, we need xlsx package - save as temp then convert
-      targetPath = path.join(csvPath, `attendance_upload_${timestamp}.csv`);
+      targetPath = path.join(csvPath, `attendance_upload_${randomName}.csv`);
       
       // Dynamic import for xlsx
       const XLSX = await import("xlsx");
@@ -393,10 +435,14 @@ ipcMain.handle("upload-file", async (_, { name, buffer, type }) => {
       const csvContent = XLSX.utils.sheet_to_csv(sheet);
       fs.writeFileSync(targetPath, csvContent);
       
+      logger.info("Excel file uploaded and converted", { filename: sanitizedName, path: targetPath, size: bufferSize });
       sendUploadProgress({ phase: "parsing", progress: 60, message: "Conversion complete..." });
     }
 
     sendUploadProgress({ phase: "inserting", progress: 70, message: "Processing records..." });
+
+    // Audit log file upload
+    logger.audit("File uploaded", { filename: sanitizedName, size: bufferSize, type: ext });
 
     // Import and run ingest with progress callback
     const { ingestSingleFile } = await import("./backend/ingest.js");
@@ -421,6 +467,8 @@ ipcMain.handle("upload-file", async (_, { name, buffer, type }) => {
     // Notify UI to refresh
     notifyAttendanceInvalidation({});
 
+    logger.info("File upload completed", { filename: sanitizedName, inserted: result.inserted, skipped: result.skipped });
+
     return {
       ok: true,
       inserted: result.inserted,
@@ -428,7 +476,7 @@ ipcMain.handle("upload-file", async (_, { name, buffer, type }) => {
       total: result.total
     };
   } catch (err) {
-    console.error("upload-file error:", err);
+    logger.error("File upload failed", { error: err.message });
     sendUploadProgress({ phase: "error", progress: 0, message: err.message });
     return { ok: false, error: err.message };
   }
@@ -448,12 +496,20 @@ app.whenReady().then(async () => {
   process.env.USER_DATA_PATH = app.getPath("userData");
   process.env.CSV_PATH = ensureCSVPath();
 
+  // Initialize logger
+  logger.init(process.env.USER_DATA_PATH);
+  logger.info("Application starting", { userDataPath: process.env.USER_DATA_PATH, csvPath: process.env.CSV_PATH });
+
   console.log("User Data Path:", process.env.USER_DATA_PATH);
   console.log("CSV Path:", process.env.CSV_PATH);
 
   // Import and initialize DB
   const { initDB } = await import("./backend/db.js");
   db = initDB();
+
+  // Schedule automatic database backups
+  const { scheduleAutomaticBackups } = await import("./backend/backup.js");
+  scheduleAutomaticBackups(db, process.env.USER_DATA_PATH);
 
   // Create window
   createWindow();

@@ -3,6 +3,8 @@ import path from "path";
 import { parse } from "csv-parse/sync";
 import db from "./db.js";
 import { normalizeDate, normalizeTime } from "../dateTimeUtils.js";
+import { validateEmployeeId, validateEmployeeName } from "../utils/validator.js";
+import logger from "../utils/logger.js";
 
 /* Remove BOM from string */
 function removeBOM(str) {
@@ -15,11 +17,19 @@ function removeBOM(str) {
 /* CSV Reader with BOM handling */
 function readCSV(csvFilePath) {
   if (!fs.existsSync(csvFilePath)) {
-    console.error(`CSV file not found: ${csvFilePath}`);
+    logger.error("CSV file not found", { path: csvFilePath });
     return [];
   }
 
   try {
+    // Check file size - reject files larger than 10MB
+    const stats = fs.statSync(csvFilePath);
+    const maxSize = 10 * 1024 * 1024; // 10MB
+    if (stats.size > maxSize) {
+      logger.error("CSV file too large", { path: csvFilePath, size: stats.size, maxSize });
+      throw new Error(`File size exceeds 10MB limit`);
+    }
+
     const file = fs.readFileSync(csvFilePath);
     const records = parse(file, {
       columns: true,
@@ -37,10 +47,11 @@ function readCSV(csvFilePath) {
       return normalized;
     });
     
+    logger.info("CSV file read successfully", { path: csvFilePath, records: normalizedRecords.length });
     return normalizedRecords;
   } catch (err) {
-    console.error(`CSV read error (${path.basename(csvFilePath)}): ${err.message}`);
-    return [];
+    logger.error("CSV read error", { path: csvFilePath, error: err.message });
+    throw err;
   }
 }
 
@@ -61,13 +72,13 @@ export function ingestSingleFile(filePath, onProgress) {
     const rows = readCSV(filePath);
     
     if (!rows.length) {
-      console.log(`No rows found in ${path.basename(filePath)}`);
+      logger.warn("No rows found in CSV", { file: path.basename(filePath) });
       onProgress?.({ progress: 100, message: "No records found", current: 0, total: 0 });
       return result;
     }
     
     result.total = rows.length;
-    console.log(`Found ${rows.length} rows to process`);
+    logger.info("Processing CSV rows", { file: path.basename(filePath), rows: rows.length });
     
     // Report: Parsing complete
     onProgress?.({ progress: 10, message: `Found ${rows.length} records`, current: 0, total: rows.length });
@@ -96,22 +107,34 @@ export function ingestSingleFile(filePath, onProgress) {
         const rawDate = r.Date || r.date || r.DATE;
         const rawTime = r.Time || r.time || r.TIME;
         
+        // Validate employee ID
+        const employeeIdValidation = validateEmployeeId(rawUserId);
+        if (!employeeIdValidation.valid) {
+          logger.warn("Skipping row with invalid employee ID", { row: i + 1, employeeId: rawUserId, error: employeeIdValidation.error });
+          result.skipped++;
+          continue;
+        }
+        const validatedEmployeeId = employeeIdValidation.value;
+        
         // Normalize date and time for regional format support
         const normalizedDate = normalizeDate(rawDate);
         const normalizedTime = normalizeTime(rawTime);
         
         // Check for required fields and valid normalization
-        if (!rawUserId || !normalizedDate || !normalizedTime) {
-          console.log(`Skipping invalid row ${i + 1} - UserID: ${rawUserId}, Date: ${rawDate}, Time: ${rawTime}`);
+        if (!normalizedDate || !normalizedTime) {
+          logger.warn("Skipping row with invalid date/time", { row: i + 1, date: rawDate, time: rawTime });
           result.skipped++;
           continue;
         }
 
-        const employeeName = r.EmployeeName || r.Name || r.name || r.employee_name || `Employee ${rawUserId}`;
+        // Get and validate employee name
+        const rawEmployeeName = r.EmployeeName || r.Name || r.name || r.employee_name || `Employee ${validatedEmployeeId}`;
+        const employeeNameValidation = validateEmployeeName(rawEmployeeName);
+        const employeeName = employeeNameValidation.valid ? employeeNameValidation.value : `Employee ${validatedEmployeeId}`;
 
         try {
-          insertEmployee.run(rawUserId, employeeName);
-          const info = insertLog.run(rawUserId, normalizedDate, normalizedTime);
+          insertEmployee.run(validatedEmployeeId, employeeName);
+          const info = insertLog.run(validatedEmployeeId, normalizedDate, normalizedTime);
           
           if (info.changes > 0) {
             result.inserted++;
@@ -120,7 +143,7 @@ export function ingestSingleFile(filePath, onProgress) {
             result.skipped++;
           }
         } catch (err) {
-          console.log(`Insert error for row ${i + 1}: ${err.message}`);
+          logger.warn("Insert error for row", { row: i + 1, error: err.message });
           result.skipped++;
         }
         
@@ -137,7 +160,7 @@ export function ingestSingleFile(filePath, onProgress) {
       }
     })();
     
-    console.log(`File processing complete: ${result.inserted} inserted, ${result.skipped} skipped`);
+    logger.info("File processing complete", { file: path.basename(filePath), inserted: result.inserted, skipped: result.skipped, total: result.total });
     
     onProgress?.({
       progress: 100,
@@ -148,7 +171,7 @@ export function ingestSingleFile(filePath, onProgress) {
     
     return result;
   } catch (err) {
-    console.error(`File processing failed: ${err.message}`);
+    logger.error("File processing failed", { file: path.basename(filePath), error: err.message });
     throw err;
   }
 }

@@ -49,7 +49,7 @@ const monthPickerStyles = `
 }
 
 .dark-monthpicker-wrapper .react-datepicker__input-container .react-datepicker-custom-input::placeholder {
-    color: #6b7280;
+    color: #CBD5E1;
 }
 
 /* Popper */
@@ -112,9 +112,9 @@ const monthPickerStyles = `
     font-weight: 600;
 }
 
-/* Disabled months (RED) */
+/* Disabled months */
 .dark-monthpicker-popper .react-datepicker__month-text--disabled {
-    color: #374151 !important;
+    color: #838E9A !important;
     opacity: 1;
     cursor: not-allowed;
 }
@@ -657,7 +657,7 @@ export default function Reports({ onGenerated }) {
                 right: "10px",
                 top: "49%", /* Adjusted from 49% to 50% for better vertical centering */
                 transform: "translateY(-50%)",
-                color: "#6b7280",
+                color: "#CBD5E1",
                 fontSize: "18px",
                 pointerEvents: "none",
               }}
