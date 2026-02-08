@@ -44,6 +44,11 @@ export async function apiFetch(path, options = {}) {
         const month = searchParams.month || null;
         dataPromise = window.api.getAttendance(employeeId, month);
       }
+      // GET /api/monthly-report (OPTIMIZED)
+      else if (pathSegments[1] === "monthly-report" && pathSegments.length === 2) {
+        const month = searchParams.month;
+        dataPromise = window.api.getMonthlyReport(month);
+      }
       else {
         throw new Error(`Unknown API endpoint: ${path}`);
       }

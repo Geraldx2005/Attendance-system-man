@@ -7,6 +7,7 @@ import crypto from "crypto";
 import { timeToMinutes as utilTimeToMinutes } from "./dateTimeUtils.js";
 import { validateEmployeeName, sanitizeFilename, validateFileSize, validateFileExtension } from "./utils/validator.js";
 import logger from "./utils/logger.js";
+import { generateMonthlyReport } from "./backend/monthlyReport.js";
 
 let db;
 
@@ -196,6 +197,17 @@ ipcMain.handle("api:get-logs", (_, { employeeId, date, from, to }) => {
   } catch (err) {
     logger.error("Failed to fetch logs", { employeeId, error: err.message });
     throw new Error("Failed to fetch attendance logs");
+  }
+});
+
+// GET /api/monthly-report (OPTIMIZED - single batch query)
+ipcMain.handle("api:get-monthly-report", (_, { month }) => {
+  try {
+    const report = generateMonthlyReport(month);
+    return report;
+  } catch (err) {
+    logger.error("Failed to generate monthly report", { month, error: err.message });
+    throw new Error("Failed to generate monthly report");
   }
 });
 

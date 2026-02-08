@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { MaterialReactTable } from "material-react-table";
 import { ThemeProvider, createTheme } from "@mui/material/styles";
 import CssBaseline from "@mui/material/CssBaseline";
@@ -397,6 +397,13 @@ export default function DailyReport({ onGenerated }) {
         }
     };
 
+    // Auto-generate report when date is selected
+    useEffect(() => {
+        if (selectedDate) {
+            generateReport();
+        }
+    }, [selectedDate]);
+
     const exportExcel = async () => {
         try {
             setIsExporting(true);
@@ -665,39 +672,11 @@ export default function DailyReport({ onGenerated }) {
             <style>{datePickerStyles}</style>
 
             {/* Top Bar */}
-            <div className="flex items-center gap-2 bg-nero-800 border border-nero-700 rounded-md px-3 py-2" style={{ position: "relative", zIndex: 100 }}>
+            {/* Top Bar */}
+            <div className="flex items-center justify-between gap-2 bg-nero-800 border border-nero-700 rounded-md px-3 py-2" style={{ position: "relative", zIndex: 10 }}>
 
-                {/* Date Picker */}
-                <div className="dark-datepicker-wrapper relative">
-                    <DatePicker
-                        selected={selectedDate}
-                        onChange={(date) => setSelectedDate(date)}
-                        dateFormat="dd MMM yyyy"
-                        placeholderText="Select date"
-                        disabled={isGenerating}
-                        dropdownMode="select"
-                        maxDate={new Date()}
-                        minDate={new Date("2024-01-01")}
-                        popperClassName="dark-datepicker-popper"
-                        popperPlacement="bottom-start"
-                        portalId="root"
-                        customInput={<CustomDateInput />}
-                    />
-                    <CalendarTodayIcon
-                        style={{
-                            position: "absolute",
-                            right: "10px",
-                            top: "49%",
-                            transform: "translateY(-50%)",
-                            color: "#CBD5E1",
-                            fontSize: "18px",
-                            pointerEvents: "none",
-                        }}
-                    />
-                </div>
-
-                {/* KPIs */}
-                <div className="flex gap-4 text-sm text-nero-400 ml-3">
+                {/* KPIs (Moved to Left) */}
+                <div className="flex gap-4 text-sm text-nero-400">
                     <span className="text-emerald-400">Full Day: {stats.fullDay}</span>
                     <span className="text-amber-400">Half Day: {stats.halfDay}</span>
                     <span className="text-red-400">Absent: {stats.absent}</span>
@@ -705,23 +684,47 @@ export default function DailyReport({ onGenerated }) {
                     <span>Total: {tableData.length}</span>
                 </div>
 
-                <button
-                    onClick={generateReport}
-                    disabled={isGenerating || !selectedDate}
-                    className="ml-auto px-4 py-2 rounded-md bg-emerald-600 hover:bg-emerald-500 text-sm font-medium text-black disabled:opacity-50 disabled:cursor-not-allowed disabled:bg-emerald-600 flex items-center gap-2"
-                >
-                    {isGenerating ? (
-                        <>
+                <div className="flex items-center gap-4">
+                    {/* Loading indicator */}
+                    {isGenerating && (
+                        <div className="flex items-center gap-2 text-sm text-nero-400">
                             <svg className="animate-spin h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
                                 <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
                                 <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
                             </svg>
                             Generating...
-                        </>
-                    ) : (
-                        "Generate"
+                        </div>
                     )}
-                </button>
+
+                    {/* Date Picker (Moved to Right) */}
+                    <div className="dark-datepicker-wrapper relative">
+                        <DatePicker
+                            selected={selectedDate}
+                            onChange={(date) => setSelectedDate(date)}
+                            dateFormat="dd MMM yyyy"
+                            placeholderText="Select date"
+                            disabled={isGenerating}
+                            dropdownMode="select"
+                            maxDate={new Date()}
+                            minDate={new Date("2024-01-01")}
+                            popperClassName="dark-datepicker-popper"
+                            popperPlacement="bottom-end"
+                            portalId="root"
+                            customInput={<CustomDateInput />}
+                        />
+                        <CalendarTodayIcon
+                            style={{
+                                position: "absolute",
+                                right: "10px",
+                                top: "49%",
+                                transform: "translateY(-50%)",
+                                color: "#CBD5E1",
+                                fontSize: "18px",
+                                pointerEvents: "none",
+                            }}
+                        />
+                    </div>
+                </div>
             </div>
 
             {/* Error Message */}
@@ -753,7 +756,7 @@ export default function DailyReport({ onGenerated }) {
                             <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
                             <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
                         </svg>
-                        <div className="text-lg font-medium text-nero-300">Generating Report...</div>
+                        <div className="text-lg font-medium text-nero-300">Generating report for {selectedDate?.toLocaleDateString("en-US", { day: "numeric", month: "short", year: "numeric" })}</div>
                         <div className="text-sm text-nero-500">Please wait while we fetch the attendance data</div>
                     </div>
                 ) : rows.length === 0 ? (

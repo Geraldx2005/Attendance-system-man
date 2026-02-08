@@ -61,6 +61,7 @@ contextBridge.exposeInMainWorld("api", {
   getEmployees: () => ipcRenderer.invoke("api:get-employees"),
   getLogs: (employeeId, params) => ipcRenderer.invoke("api:get-logs", { employeeId, ...params }),
   getAttendance: (employeeId, month) => ipcRenderer.invoke("api:get-attendance", { employeeId, month }),
+  getMonthlyReport: (month) => ipcRenderer.invoke("api:get-monthly-report", { month }),
   updateEmployeeName: (employeeId, name) => ipcRenderer.invoke("api:update-employee", { employeeId, name }),
 });
 

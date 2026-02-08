@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { MaterialReactTable } from "material-react-table";
 import { ThemeProvider, createTheme } from "@mui/material/styles";
 import CssBaseline from "@mui/material/CssBaseline";
@@ -173,44 +173,23 @@ const darkMuiTheme = createTheme({
   },
 });
 
-// Fetch Monthly Report
+// Fetch Monthly Report (OPTIMIZED - single batch query)
 async function fetchMonthlyReport(month, year) {
   const monthIndex = MONTHS.indexOf(month) + 1;
   const monthKey = `${year}-${String(monthIndex).padStart(2, "0")}`;
 
-  // fetch employees
-  const empRes = await apiFetch("/api/employees");
-  const employees = await empRes.json();
+  // Single optimized API call - replaces N+1 queries
+  const res = await apiFetch(`/api/monthly-report?month=${monthKey}`);
+  const data = await res.json();
 
-  const result = [];
-
-  // fetch attendance per employee
-  for (const emp of employees) {
-    const attRes = await apiFetch(
-      `/api/attendance/${emp.employeeId}?month=${monthKey}`
-    );
-    const days = await attRes.json();
-
-    let present = 0;
-    let halfDay = 0;
-    let absent = 0;
-
-    for (const d of days) {
-      if (d.status === "Full Day") present++;
-      else if (d.status === "Half Day") halfDay++;
-      else if (d.status === "Absent") absent++;
-    }
-
-    result.push({
-      employeeName: emp.name,
-      present,
-      halfDay,
-      absent,
-      totalPresent: present + halfDay * 0.5,
-    });
-  }
-
-  return result;
+  // Map to expected format (employeeName instead of just name)
+  return data.map(emp => ({
+    employeeName: emp.employeeName,
+    present: emp.present,
+    halfDay: emp.halfDay,
+    absent: emp.absent,
+    totalPresent: emp.totalPresent,
+  }));
 }
 
 // Component
@@ -263,6 +242,13 @@ export default function Reports({ onGenerated }) {
       setIsGenerating(false);
     }
   };
+
+  // Auto-generate report when date is selected
+  useEffect(() => {
+    if (selectedDate) {
+      generateReport();
+    }
+  }, [selectedDate]);
 
   const exportExcel = async () => {
     try {
@@ -633,60 +619,56 @@ export default function Reports({ onGenerated }) {
       <div className="w-full h-full flex flex-col gap-3">
 
         {/* Top Bar */}
-        <div className="flex items-center gap-2 bg-nero-800 border border-nero-700 rounded-md px-3 py-2" style={{ position: "relative", zIndex: 100 }}>
+        {/* Top Bar */}
+        <div className="flex items-center justify-between gap-2 bg-nero-800 border border-nero-700 rounded-md px-3 py-2" style={{ position: "relative", zIndex: 10 }}>
 
-          {/* Month Picker */}
-          <div className="dark-monthpicker-wrapper relative">
-            <DatePicker
-              selected={selectedDate}
-              onChange={(date) => setSelectedDate(date)}
-              dateFormat="MMM yyyy"
-              placeholderText="Select month"
-              disabled={isGenerating}
-              showMonthYearPicker
-              maxDate={new Date()}
-              minDate={new Date("2024-01-01")}
-              popperClassName="dark-monthpicker-popper"
-              popperPlacement="bottom-start"
-              portalId="root"
-              customInput={<CustomDateInput />}
-            />
-            <CalendarTodayIcon
-              style={{
-                position: "absolute",
-                right: "10px",
-                top: "49%", /* Adjusted from 49% to 50% for better vertical centering */
-                transform: "translateY(-50%)",
-                color: "#CBD5E1",
-                fontSize: "18px",
-                pointerEvents: "none",
-              }}
-            />
-          </div>
-
-          {/* KPI */}
-          <div className="flex gap-4 text-sm text-nero-400 ml-3">
+          {/* KPI (Moved to Left) */}
+          <div className="flex gap-4 text-sm text-nero-400">
             <span>Employees: {rows.length}</span>
             <span>Avg Attendance: {avgAttendance}%</span>
           </div>
 
-          <button
-            onClick={generateReport}
-            disabled={isGenerating || !selectedDate}
-            className="ml-auto px-4 py-2 rounded-md bg-emerald-600 hover:bg-emerald-500 text-sm font-medium text-black disabled:opacity-50 disabled:cursor-not-allowed disabled:bg-emerald-600 flex items-center gap-2"
-          >
-            {isGenerating ? (
-              <>
+          <div className="flex items-center gap-4">
+            {/* Loading indicator */}
+            {isGenerating && (
+              <div className="flex items-center gap-2 text-sm text-nero-400">
                 <svg className="animate-spin h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
                   <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
                   <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
                 </svg>
                 Generating...
-              </>
-            ) : (
-              "Generate"
+              </div>
             )}
-          </button>
+
+            {/* Month Picker (Moved to Right) */}
+            <div className="dark-monthpicker-wrapper relative">
+              <DatePicker
+                selected={selectedDate}
+                onChange={(date) => setSelectedDate(date)}
+                dateFormat="MMM yyyy"
+                placeholderText="Select month"
+                disabled={isGenerating}
+                showMonthYearPicker
+                maxDate={new Date()}
+                minDate={new Date("2024-01-01")}
+                popperClassName="dark-monthpicker-popper"
+                popperPlacement="bottom-end"
+                portalId="root"
+                customInput={<CustomDateInput />}
+              />
+              <CalendarTodayIcon
+                style={{
+                  position: "absolute",
+                  right: "10px",
+                  top: "49%", /* Adjusted from 49% to 50% for better vertical centering */
+                  transform: "translateY(-50%)",
+                  color: "#CBD5E1",
+                  fontSize: "18px",
+                  pointerEvents: "none",
+                }}
+              />
+            </div>
+          </div>
         </div>
 
         {/* Error Message */}
@@ -718,7 +700,7 @@ export default function Reports({ onGenerated }) {
                 <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
                 <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
               </svg>
-              <div className="text-lg font-medium text-nero-300">Generating Report...</div>
+              <div className="text-lg font-medium text-nero-300">Generating Report for {selectedDate?.toLocaleString("default", { month: "long", year: "numeric" })}</div>
               <div className="text-sm text-nero-500">Please wait while we fetch the attendance data</div>
             </div>
           ) : rows.length === 0 ? (
