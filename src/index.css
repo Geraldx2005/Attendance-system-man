@@ -66,6 +66,7 @@ select:focus-visible {
 @layer utilities {
   .minimal-scrollbar::-webkit-scrollbar {
     width: 6px;
+    height: 6px;
   }
 
   .minimal-scrollbar::-webkit-scrollbar-track {

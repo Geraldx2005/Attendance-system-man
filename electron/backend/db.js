@@ -24,7 +24,6 @@ export function initDB() {
   const dbPath = path.join(USER_DATA_PATH, "attendance.db");
 
   logger.info("Initializing database", { path: dbPath });
-  console.log("Initializing database at:", dbPath);
 
   // Open DB
   db = new Database(dbPath);
@@ -80,6 +79,35 @@ export function initDB() {
       ON attendance_logs(date);
   `);
 
+  // UPLOADS TABLE (for tracking upload history)
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS uploads (
+      id TEXT PRIMARY KEY,
+      filename TEXT NOT NULL,
+      records_inserted INTEGER DEFAULT 0,
+      records_skipped INTEGER DEFAULT 0,
+      uploaded_at TEXT DEFAULT (datetime('now','localtime'))
+    );
+  `);
+
+  // Add upload_id column to attendance_logs if not exists (migration)
+  try {
+    const columns = db.pragma("table_info(attendance_logs)");
+    const hasUploadId = columns.some(col => col.name === "upload_id");
+    if (!hasUploadId) {
+      db.exec(`ALTER TABLE attendance_logs ADD COLUMN upload_id TEXT REFERENCES uploads(id) ON DELETE CASCADE`);
+      logger.info("Added upload_id column to attendance_logs");
+    }
+  } catch (err) {
+    logger.warn("Failed to add upload_id column", { error: err.message });
+  }
+
+  // Index for upload_id lookups
+  db.exec(`
+    CREATE INDEX IF NOT EXISTS idx_logs_upload_id
+      ON attendance_logs(upload_id);
+  `);
+
   // Create backups directory
   const backupDir = path.join(USER_DATA_PATH, "backups");
   if (!fs.existsSync(backupDir)) {
@@ -100,7 +128,6 @@ export function initDB() {
   }
 
   logger.info("Database initialized successfully");
-  console.log("✓ Database initialized successfully");
 
   return db;
 }

@@ -248,9 +248,12 @@ ipcMain.handle("api:get-attendance", (_, { employeeId, month }) => {
 
         // No punches
         if (!punches.length) {
+          const dateObj = new Date(date);
+          const isSunday = dateObj.getDay() === 0;
+
           return {
             date,
-            status: isPastDate(date) ? "Absent" : "Pending",
+            status: isSunday ? "Holiday" : (isPastDate(date) ? "Absent" : "Pending"),
             firstIn: null,
             lastOut: null,
             workedMinutes: 0,
@@ -266,12 +269,23 @@ ipcMain.handle("api:get-attendance", (_, { employeeId, month }) => {
 
         const inMin = timeToMinutes(firstIn);
         const outMin = timeToMinutes(lastOut);
+        
+        const dateObj = new Date(date);
+        const isSunday = dateObj.getDay() === 0;
 
         if (inMin !== null && outMin !== null && outMin > inMin) {
           workedMinutes = outMin - inMin;
 
-          if (workedMinutes >= 8 * 60) status = "Full Day";
-          else if (workedMinutes >= 5 * 60) status = "Half Day";
+          if (workedMinutes >= 8 * 60) {
+            status = "Full Day";
+          } else if (workedMinutes >= 5 * 60) {
+            status = "Half Day";
+          }
+          // < 5 hours remains "Absent"
+        } else {
+           if (isSunday) { // If no work done on Sunday
+             status = "Holiday";
+           }
         }
 
         return {
@@ -315,12 +329,24 @@ ipcMain.handle("api:get-attendance", (_, { employeeId, month }) => {
 
       const inMin = timeToMinutes(firstIn);
       const outMin = timeToMinutes(lastOut);
+      
+      const dateObj = new Date(date);
+      const isSunday = dateObj.getDay() === 0;
 
       if (inMin !== null && outMin !== null && outMin > inMin) {
         workedMinutes = outMin - inMin;
 
-        if (workedMinutes >= 8 * 60) status = "Full Day";
-        else if (workedMinutes >= 5 * 60) status = "Half Day";
+        if (isSunday) {
+           status = "Extra";
+        } else if (workedMinutes >= 8 * 60) {
+            status = "Full Day";
+        } else if (workedMinutes >= 5 * 60) {
+            status = "Half Day";
+        }
+      } else {
+         if (isSunday) {
+             status = "Holiday";
+         }
       }
 
       return {
@@ -472,7 +498,7 @@ ipcMain.handle("upload-file", async (_, { name, buffer, type }) => {
         current: progressInfo.current,
         total: progressInfo.total
       });
-    });
+    }, sanitizedName);
 
     sendUploadProgress({ phase: "complete", progress: 100, message: "Upload complete!" });
 
@@ -494,6 +520,71 @@ ipcMain.handle("upload-file", async (_, { name, buffer, type }) => {
   }
 });
 
+/* ================= IPC HANDLERS - UPLOAD HISTORY ================= */
+
+// GET /api/upload-history
+ipcMain.handle("api:get-upload-history", () => {
+  try {
+    const uploads = db
+      .prepare(
+        `
+      SELECT 
+        id,
+        filename,
+        records_inserted AS recordsInserted,
+        records_skipped AS recordsSkipped,
+        uploaded_at AS uploadedAt
+      FROM uploads
+      ORDER BY uploaded_at DESC
+    `
+      )
+      .all();
+
+    logger.debug("Fetched upload history", { count: uploads.length });
+    return uploads;
+  } catch (err) {
+    logger.error("Failed to fetch upload history", { error: err.message });
+    throw new Error("Failed to fetch upload history");
+  }
+});
+
+// DELETE /api/delete-upload
+ipcMain.handle("api:delete-upload", (_, { uploadId }) => {
+  try {
+    if (!uploadId || typeof uploadId !== "string") {
+      throw new Error("Invalid upload ID");
+    }
+
+    // First count how many logs will be deleted
+    const countResult = db
+      .prepare("SELECT COUNT(*) as count FROM attendance_logs WHERE upload_id = ?")
+      .get(uploadId);
+    const logsToDelete = countResult?.count || 0;
+
+    // Delete the upload (cascade will delete related attendance_logs)
+    const deleteResult = db
+      .prepare("DELETE FROM uploads WHERE id = ?")
+      .run(uploadId);
+
+    if (deleteResult.changes === 0) {
+      throw new Error("Upload not found");
+    }
+
+    // Also manually delete attendance logs (in case CASCADE doesn't trigger)
+    db.prepare("DELETE FROM attendance_logs WHERE upload_id = ?").run(uploadId);
+
+    logger.audit("Upload deleted", { uploadId, logsDeleted: logsToDelete });
+
+    // Notify UI to refresh
+    notifyAttendanceInvalidation({});
+
+    return { ok: true, logsDeleted: logsToDelete };
+  } catch (err) {
+    logger.error("Failed to delete upload", { uploadId, error: err.message });
+    throw new Error(err.message || "Failed to delete upload");
+  }
+});
+
 function sendUploadProgress(data) {
   if (mainWindow && !mainWindow.isDestroyed()) {
     mainWindow.webContents.send("upload:progress", data);
@@ -511,9 +602,6 @@ app.whenReady().then(async () => {
   // Initialize logger
   logger.init(process.env.USER_DATA_PATH);
   logger.info("Application starting", { userDataPath: process.env.USER_DATA_PATH, csvPath: process.env.CSV_PATH });
-
-  console.log("User Data Path:", process.env.USER_DATA_PATH);
-  console.log("CSV Path:", process.env.CSV_PATH);
 
   // Import and initialize DB
   const { initDB } = await import("./backend/db.js");

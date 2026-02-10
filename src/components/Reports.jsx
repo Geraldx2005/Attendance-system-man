@@ -104,12 +104,25 @@ const monthPickerStyles = `
     color: #ffffff;
 }
 
-/* Selected */
-.dark-monthpicker-popper .react-datepicker__month-text--selected,
-.dark-monthpicker-popper .react-datepicker__month-text--keyboard-selected {
+/* Selected - only explicit user selection */
+.dark-monthpicker-popper .react-datepicker__month-text--selected {
     background-color: #10b981 !important;
     color: #000 !important;
     font-weight: 600;
+}
+
+/* Keyboard-selected (auto-focus on open) - should NOT be highlighted */
+.dark-monthpicker-popper .react-datepicker__month-text--keyboard-selected:not(.react-datepicker__month-text--selected) {
+    background-color: transparent !important;
+    color: #e5e7eb !important;
+    font-weight: normal;
+}
+
+
+/* Ensure emerald background for current month when it is explicitly selected */
+.dark-monthpicker-popper .react-datepicker__month-text--today.react-datepicker__month-text--selected {
+    background-color: #10b981 !important;
+    color: #000 !important;
 }
 
 /* Disabled months */
@@ -119,9 +132,18 @@ const monthPickerStyles = `
     cursor: not-allowed;
 }
 
+
+
+
+
 /* Kill hover on disabled */
 .dark-monthpicker-popper
 .react-datepicker__month-text--disabled:hover {
+    background-color: transparent;
+}
+
+/* Suppress default highlight for today's month */
+.dark-monthpicker-popper .react-datepicker__month-text--today {
     background-color: transparent;
 }
 
@@ -188,6 +210,8 @@ async function fetchMonthlyReport(month, year) {
     present: emp.present,
     halfDay: emp.halfDay,
     absent: emp.absent,
+    holiday: emp.holiday,
+    extra: emp.extra,
     totalPresent: emp.totalPresent,
   }));
 }
@@ -265,6 +289,7 @@ export default function Reports({ onGenerated }) {
         "Present Days": r.present,
         "Half Days": r.halfDay,
         "Absent Days": r.absent,
+        "Extra Days": r.extra,
         "Total Present Days": r.totalPresent,
         "Attendance Percentage": Number(r.attendancePct) / 100, // real %
       }));
@@ -303,11 +328,12 @@ export default function Reports({ onGenerated }) {
 
       // COLUMN WIDTHS (PROFESSIONAL)
       ws["!cols"] = [
-        { wch: 14 }, // Employee ID
+        { wch: 14 },
         { wch: 22 }, // Name
         { wch: 14 },
         { wch: 12 },
         { wch: 14 },
+        { wch: 14 }, // Extra
         { wch: 18 },
         { wch: 22 },
       ];
@@ -334,7 +360,7 @@ export default function Reports({ onGenerated }) {
           };
 
           // Attendance % column formatting
-          if (C === 6) {
+          if (C === 7) {
             cell.z = "0.0%";
           }
         }
@@ -409,11 +435,12 @@ export default function Reports({ onGenerated }) {
         tableWidth: pageWidth,
 
         head: [[
-          "Employee ID",
+          "ID",
           "Employee Name",
           "Present",
           "Half Day",
           "Absent",
+          "Extra",
           "Total Present",
           "Attendance %",
         ]],
@@ -424,6 +451,7 @@ export default function Reports({ onGenerated }) {
           r.present,
           r.halfDay,
           r.absent,
+          r.extra,
           r.totalPresent,
           `${r.attendancePct}%`,
         ]),
@@ -451,13 +479,14 @@ export default function Reports({ onGenerated }) {
         },
 
         columnStyles: {
-          0: { halign: "center", cellWidth: 60 },
-          1: { halign: "left", cellWidth: 125 },
-          2: { halign: "center", cellWidth: 50 },
-          3: { halign: "center", cellWidth: 50 },
-          4: { halign: "center", cellWidth: 50 },
-          5: { halign: "center", cellWidth: 80 },
-          6: { halign: "center", cellWidth: 108 },
+          0: { halign: "center", cellWidth: 50 },
+          1: { halign: "left", cellWidth: 110 },
+          2: { halign: "center", cellWidth: 45 },
+          3: { halign: "center", cellWidth: 52 },
+          4: { halign: "center", cellWidth: 52 },
+          5: { halign: "center", cellWidth: 52 }, // Extra
+          6: { halign: "center", cellWidth: 72 },
+          7: { halign: "center", cellWidth: 90 },
         },
 
         alternateRowStyles: {
@@ -529,6 +558,9 @@ export default function Reports({ onGenerated }) {
 
   // Table Data
   const tableData = useMemo(() => {
+    if (rows.length > 0) {
+      // console.log("[DEBUG Frontend] First row data:", rows[0]);
+    }
     return rows.map((r, idx) => {
       const days = r.present + r.halfDay + r.absent;
       const pct = days
@@ -541,6 +573,8 @@ export default function Reports({ onGenerated }) {
         present: r.present,
         halfDay: r.halfDay,
         absent: r.absent,
+        holiday: r.holiday,
+        extra: r.extra,
         totalPresent: r.totalPresent,
         attendancePct: pct,
       };
@@ -550,12 +584,12 @@ export default function Reports({ onGenerated }) {
   // Columns
   const columns = useMemo(
     () => [
-      { accessorKey: "employeeId", header: "ID", size: 110 },
-      { accessorKey: "employeeName", header: "Employee", size: 260 },
-
+      { accessorKey: "employeeId", header: "ID", size: 90 }, // Reduced from 110
+      { accessorKey: "employeeName", header: "Employee", size: 180 }, // Reduced from 260
       {
         accessorKey: "present",
         header: "Present",
+        size: 90,
         Cell: ({ cell }) => (
           <span className="font-semibold text-emerald-400">{cell.getValue()}</span>
         ),
@@ -563,6 +597,7 @@ export default function Reports({ onGenerated }) {
       {
         accessorKey: "halfDay",
         header: "Half Day",
+        size: 90,
         Cell: ({ cell }) => (
           <span className="font-semibold text-amber-400">{cell.getValue()}</span>
         ),
@@ -570,13 +605,31 @@ export default function Reports({ onGenerated }) {
       {
         accessorKey: "absent",
         header: "Absent",
+        size: 90,
         Cell: ({ cell }) => (
           <span className="font-semibold text-red-400">{cell.getValue()}</span>
         ),
       },
       {
+        accessorKey: "holiday",
+        header: "Holiday",
+        size: 90,
+        Cell: ({ cell }) => (
+          <span className="font-semibold text-pink-400">{cell.getValue()}</span>
+        ),
+      },
+      {
+        accessorKey: "extra",
+        header: "Extra",
+        size: 90,
+        Cell: ({ cell }) => (
+          <span className="font-semibold text-purple-400">{cell.getValue()}</span>
+        ),
+      },
+      {
         accessorKey: "totalPresent",
         header: "Total",
+        size: 80,
         Cell: ({ cell }) => (
           <span className="font-semibold text-nero-100">
             {cell.getValue()}
@@ -585,7 +638,8 @@ export default function Reports({ onGenerated }) {
       },
       {
         accessorKey: "attendancePct",
-        header: "Attendance %",
+        header: "%", // Compact header
+        size: 80,
         Cell: ({ cell }) => {
           const pct = cell.getValue();
           const cls = getAttendanceBadge(pct);
@@ -643,7 +697,7 @@ export default function Reports({ onGenerated }) {
             {/* Month Picker (Moved to Right) */}
             <div className="dark-monthpicker-wrapper relative">
               <DatePicker
-                selected={selectedDate}
+                selected={selectedDate || undefined}
                 onChange={(date) => setSelectedDate(date)}
                 dateFormat="MMM yyyy"
                 placeholderText="Select month"
@@ -693,7 +747,7 @@ export default function Reports({ onGenerated }) {
         )}
 
         {/* Table */}
-        <div className="flex-1 border border-nero-700 rounded-md overflow-hidden bg-[#0b0b0b] flex flex-col">
+        <div className="flex-1 min-w-0 border border-nero-700 rounded-md overflow-hidden bg-[#0b0b0b] flex flex-col">
           {isGenerating ? (
             <div className="flex-1 flex flex-col items-center justify-center text-nero-400 gap-4">
               <svg className="animate-spin h-10 w-10 text-emerald-500" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
@@ -704,8 +758,8 @@ export default function Reports({ onGenerated }) {
               <div className="text-sm text-nero-500">Please wait while we fetch the attendance data</div>
             </div>
           ) : rows.length === 0 ? (
-            <div className="flex-1 flex items-center justify-center text-nero-500 text-sm">
-              Generate a monthly report
+            <div className="flex-1 flex items-center justify-center text-nero-500 text-lg">
+              Select a month to generate a monthly report
             </div>
           ) : (
             <ThemeProvider theme={darkMuiTheme}>
@@ -713,7 +767,7 @@ export default function Reports({ onGenerated }) {
               <MaterialReactTable
                 columns={columns}
                 data={tableData}
-                layoutMode="grid"
+                layoutMode="semantic"
                 enableStickyHeader
                 enableDensityToggle={false}
                 enableColumnActions
@@ -721,11 +775,10 @@ export default function Reports({ onGenerated }) {
                 enableHiding
                 enableSorting
                 enableGlobalFilter
-                initialState={{ density: "comfortable" }}
+                initialState={{ density: "compact" }}
                 enableRowSelection={false}
                 enableColumnFilters={true}
                 enableColumnOrdering={false}
-                enableColumnResizing={false}
                 enablePagination
                 enableBottomToolbar
                 enableTopToolbar
@@ -734,9 +787,12 @@ export default function Reports({ onGenerated }) {
                   className: "minimal-scrollbar",
                   sx: {
                     flex: 1,
+                    width: "100%",
+                    height: "100%",
                     overflow: "auto",
                   },
                 }}
+
 
                 muiTablePaperProps={{
                   sx: {

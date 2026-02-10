@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { motion, AnimatePresence } from "framer-motion";
 import { apiFetch } from "../utils/api";
 import { toast } from "../utils/ToastHost";
 
@@ -46,7 +47,7 @@ export default function EmployeeMapDialog({
     if (!employee || !name.trim() || saving) return;
 
     const trimmedName = name.trim();
-    
+
     if (trimmedName.length < 2) {
       setError("Name must be at least 2 characters");
       return;
@@ -73,92 +74,112 @@ export default function EmployeeMapDialog({
     }
   };
 
-  if (!open) return null;
-
   return (
-    <div
-      className="fixed inset-0 bg-black/20 backdrop-blur-md flex items-center justify-center z-50"
-      onClick={onClose}
-    >
-      <div
-        className="w-96 bg-nero-900 border border-nero-700 rounded-2xl shadow-2xl p-5"
-        onClick={(e) => e.stopPropagation()}
-      >
-        {/* Header */}
-        <div className="flex items-center justify-between mb-5">
-          <div className="text-lg font-semibold">Employee Mapping</div>
-          <button
-            onClick={onClose}
-            className="text-nero-500 hover:text-nero-300 text-xl leading-none"
+    <AnimatePresence>
+      {open && (
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+          transition={{ duration: 0.15 }}
+          className="fixed inset-0 bg-black/20 backdrop-blur-md flex items-center justify-center z-50"
+          onClick={onClose}
+        >
+          <motion.div
+            initial={{ opacity: 0, scale: 0.95, y: 10 }}
+            animate={{ opacity: 1, scale: 1, y: 0 }}
+            exit={{ opacity: 0, scale: 0.95, y: 10 }}
+            transition={{ duration: 0.2, ease: [0.16, 1, 0.3, 1] }}
+            className="w-96 bg-nero-900 border border-nero-700 rounded-2xl shadow-2xl p-5"
+            onClick={(e) => e.stopPropagation()}
           >
-            ×
-          </button>
-        </div>
-
-        {!employee ? (
-          <div className="text-sm text-nero-500">
-            Select an employee to map name
-          </div>
-        ) : (
-          <form
-            onSubmit={(e) => {
-              e.preventDefault();
-              save();
-            }}
-          >
-            {/* Employee ID */}
-            <div className="mb-3">
-              <div className="text-xs text-nero-500 mb-1">
-                Employee ID
-              </div>
-              <input
-                value={employee.employeeId}
-                disabled
-                className="w-full px-3 py-2 bg-nero-800 border border-nero-700 rounded-lg text-sm text-nero-400"
-              />
-            </div>
-
-            {/* Employee Name */}
-            <div className="mb-4">
-              <div className="text-xs text-nero-500 mb-1">
-                Employee Name
-              </div>
-              <input
-                value={name}
-                onChange={(e) => {
-                  setName(e.target.value);
-                  setError(null);
-                }}
-                placeholder="Enter employee name"
-                autoFocus
-                maxLength={50}
-                className="w-full px-3 py-2 bg-nero-800 border border-nero-700 rounded-lg text-sm text-nero-300 outline-none focus:border-nero-400"
-              />
-              {error && (
-                <div className="text-xs text-red-400 mt-1">{error}</div>
-              )}
-            </div>
-
-            {/* Actions */}
-            <div className="flex justify-end gap-2">
+            {/* Header */}
+            <div className="flex items-center justify-between mb-5">
+              <div className="text-lg font-semibold">Employee Mapping</div>
               <button
-                type="button"
                 onClick={onClose}
-                className="px-4 py-1.5 rounded-lg text-sm text-nero-400 hover:text-nero-300"
+                className="text-nero-500 hover:text-nero-300 text-xl leading-none cursor-pointer"
               >
-                Cancel
-              </button>
-              <button
-                type="submit"
-                disabled={saving || !name.trim()}
-                className="px-4 py-1.5 rounded-lg bg-nero-700 hover:bg-nero-600 text-sm disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                {saving ? "Saving…" : "Save"}
+                ×
               </button>
             </div>
-          </form>
-        )}
-      </div>
-    </div>
+
+            {!employee ? (
+              <div className="text-sm text-nero-500">
+                Select an employee to map name
+              </div>
+            ) : (
+              <form
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  save();
+                }}
+              >
+                {/* Employee ID */}
+                <div className="mb-3">
+                  <div className="text-xs text-nero-500 mb-1">
+                    Employee ID
+                  </div>
+                  <input
+                    value={employee.employeeId}
+                    disabled
+                    className="w-full px-3 py-2 bg-nero-800 border border-nero-700 rounded-lg text-sm text-nero-400"
+                  />
+                </div>
+
+                {/* Employee Name */}
+                <div className="mb-4">
+                  <div className="text-xs text-nero-500 mb-1">
+                    Employee Name
+                  </div>
+                  <input
+                    value={name}
+                    onChange={(e) => {
+                      setName(e.target.value);
+                      setError(null);
+                    }}
+                    placeholder="Enter employee name"
+                    autoFocus
+                    maxLength={50}
+                    className="w-full px-3 py-2 bg-nero-800 border border-nero-700 rounded-lg text-sm text-nero-300 outline-none focus:border-nero-400"
+                  />
+                  <AnimatePresence>
+                    {error && (
+                      <motion.div
+                        initial={{ opacity: 0, y: -5 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        exit={{ opacity: 0, y: -5 }}
+                        className="text-xs text-red-400 mt-1"
+                      >
+                        {error}
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
+                </div>
+
+                {/* Actions */}
+                <div className="flex justify-end gap-2">
+                  <button
+                    type="button"
+                    onClick={onClose}
+                    className="px-4 py-1.5 rounded-lg text-sm text-nero-400 hover:text-nero-300 cursor-pointer"
+                  >
+                    Cancel
+                  </button>
+                  <motion.button
+                    whileTap={{ scale: 0.97 }}
+                    type="submit"
+                    disabled={saving || !name.trim()}
+                    className="px-4 py-1.5 rounded-lg bg-nero-700 hover:bg-nero-600 text-sm disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
+                  >
+                    {saving ? "Saving…" : "Save"}
+                  </motion.button>
+                </div>
+              </form>
+            )}
+          </motion.div>
+        </motion.div>
+      )}
+    </AnimatePresence>
   );
 }

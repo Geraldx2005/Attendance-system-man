@@ -15,68 +15,125 @@ export function generateMonthlyReport(month) {
 
   logger.info("Generating monthly report", { month });
 
-  // Single query: fetch all punches for the month, grouped by employee and date
-  const rows = db.prepare(`
+  // 1. Get all employees
+  const employees = db.prepare("SELECT id, name FROM employees ORDER BY name").all();
+
+  // 2. Get all logs for the month
+  const logs = db.prepare(`
     SELECT 
-      e.id AS employee_id,
-      e.name AS employee_name,
-      al.date,
-      MIN(al.time) AS first_in,
-      MAX(al.time) AS last_out
-    FROM employees e
-    LEFT JOIN attendance_logs al 
-      ON e.id = al.employee_id 
-      AND al.date BETWEEN ? AND ?
-    GROUP BY e.id, al.date
-    ORDER BY e.id, al.date
+      employee_id,
+      date,
+      MIN(time) as first_in,
+      MAX(time) as last_out
+    FROM attendance_logs 
+    WHERE date BETWEEN ? AND ?
+    GROUP BY employee_id, date
   `).all(from, to);
 
-  // Aggregate by employee
-  const employeeMap = new Map();
-
-  for (const row of rows) {
-    if (!employeeMap.has(row.employee_id)) {
-      employeeMap.set(row.employee_id, {
-        employeeId: row.employee_id,
-        employeeName: row.employee_name,
-        present: 0,
-        halfDay: 0,
-        absent: 0,
-      });
+  // 3. Create a lookup map: employeeId -> date -> log
+  const logMap = new Map();
+  for (const log of logs) {
+    if (!logMap.has(log.employee_id)) {
+      logMap.set(log.employee_id, new Map());
     }
-
-    const emp = employeeMap.get(row.employee_id);
-
-    // Skip if no date (employee exists but no logs for this month)
-    if (!row.date) continue;
-
-    // Calculate worked minutes
-    const inMins = timeToMinutes(row.first_in);
-    const outMins = timeToMinutes(row.last_out);
-
-    if (inMins !== null && outMins !== null && outMins > inMins) {
-      const workedMins = outMins - inMins;
-
-      if (workedMins >= 8 * 60) {
-        emp.present++;
-      } else if (workedMins >= 5 * 60) {
-        emp.halfDay++;
-      } else {
-        emp.absent++;
-      }
-    } else {
-      emp.absent++;
-    }
+    logMap.get(log.employee_id).set(log.date, log);
   }
 
-  // Convert to array and calculate totalPresent
-  const result = Array.from(employeeMap.values()).map(emp => ({
-    ...emp,
-    totalPresent: emp.present + emp.halfDay * 0.5,
-  }));
+  // 4. Determine expected days in the month
+  // If month is current month, only go up to today. 
+  // If month is past, go to last day of month.
+  const now = new Date();
+  const currentYear = now.getFullYear();
+  const currentMonth = now.getMonth() + 1; // 1-12
+  const [targetYear, targetMonth] = month.split("-").map(Number);
+  
+  const daysInMonth = new Date(targetYear, targetMonth, 0).getDate();
+  let limitDay = daysInMonth;
+
+  // If asking for the current month, limit to today
+  if (targetYear === currentYear && targetMonth === currentMonth) {
+    limitDay = now.getDate(); 
+  } else if (targetYear > currentYear || (targetYear === currentYear && targetMonth > currentMonth)) {
+    // Future month? Should be 0 days ideally, but let's just return empty stats or 0 if user forces it
+    limitDay = 0; 
+  }
+
+  const result = [];
+
+  for (const emp of employees) {
+    const stats = {
+      employeeId: emp.id,
+      employeeName: emp.name,
+      present: 0,
+      halfDay: 0,
+      absent: 0,
+      holiday: 0,
+      extra: 0,
+      totalPresent: 0,
+    };
+
+    const empLogs = logMap.get(emp.id) || new Map();
+
+    for (let day = 1; day <= limitDay; day++) {
+      const dateStr = `${month}-${String(day).padStart(2, "0")}`;
+      const dateObj = new Date(dateStr);
+      const isSunday = dateObj.getDay() === 0;
+
+      const log = empLogs.get(dateStr);
+
+      if (log) {
+        // Has attendance entry
+        const inMins = timeToMinutes(log.first_in);
+        const outMins = timeToMinutes(log.last_out);
+
+        if (inMins !== null && outMins !== null && outMins > inMins) {
+          const workedMins = outMins - inMins;
+          
+          // Sunday logic: < 5 hours is Holiday (not Absent)
+          if (isSunday && workedMins < 5 * 60) {
+             stats.holiday++;
+          } 
+          else if (workedMins >= 8 * 60) {
+            stats.present++;
+            if (isSunday) stats.extra++;
+          } else if (workedMins >= 5 * 60) {
+            stats.halfDay++;
+            if (isSunday) stats.extra++;
+          } else {
+            // Less than 5 hours is ABSENT (unless Sunday, handled above)
+            stats.absent++;
+          }
+
+        } else {
+          // Bad data (in >= out) or single punch
+          // Treat as absent or ignore? 
+          // If there is an entry but 0 hours, it's also effectively absent < 5 hours
+          // BUT if it's Sunday and effectively 0 hours, it should probably be Holiday too?
+          // The request said "if ... came on sunday and ... worked less than 3 hrs"
+          // If they have punches but 0 duration, that is < 3 hours. So Holiday.
+          if (isSunday) {
+            stats.holiday++;
+          } else {
+            stats.absent++;
+          }
+        }
+      } else {
+        // No attendance entry
+        if (isSunday) {
+          stats.holiday++;
+        } else {
+          stats.absent++;
+        }
+      }
+    }
+
+    // Calculate Total Present (Present + 0.5 * HalfDay)
+    stats.totalPresent = stats.present + (stats.halfDay * 0.5);
+    
+    result.push(stats);
+  }
 
   logger.info("Monthly report generated", { month, employeeCount: result.length });
-
   return result;
 }
 

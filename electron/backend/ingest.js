@@ -1,5 +1,6 @@
 import fs from "fs";
 import path from "path";
+import crypto from "crypto";
 import { parse } from "csv-parse/sync";
 import db from "./db.js";
 import { normalizeDate, normalizeTime } from "../dateTimeUtils.js";
@@ -56,13 +57,18 @@ function readCSV(csvFilePath) {
 }
 
 /* ================= SINGLE FILE INGEST WITH PROGRESS ================= */
-export function ingestSingleFile(filePath, onProgress) {
-  console.log(`Processing file: ${path.basename(filePath)}`);
+export function ingestSingleFile(filePath, onProgress, originalFilename = null) {
+  const filename = originalFilename || path.basename(filePath);
+  console.log(`Processing file: ${filename}`);
+  
+  // Generate unique upload ID
+  const uploadId = crypto.randomUUID();
   
   const result = {
     inserted: 0,
     skipped: 0,
-    total: 0
+    total: 0,
+    uploadId
   };
   
   try {
@@ -72,13 +78,13 @@ export function ingestSingleFile(filePath, onProgress) {
     const rows = readCSV(filePath);
     
     if (!rows.length) {
-      logger.warn("No rows found in CSV", { file: path.basename(filePath) });
+      logger.warn("No rows found in CSV", { file: filename });
       onProgress?.({ progress: 100, message: "No records found", current: 0, total: 0 });
       return result;
     }
     
     result.total = rows.length;
-    logger.info("Processing CSV rows", { file: path.basename(filePath), rows: rows.length });
+    logger.info("Processing CSV rows", { file: filename, rows: rows.length, uploadId });
     
     // Report: Parsing complete
     onProgress?.({ progress: 10, message: `Found ${rows.length} records`, current: 0, total: rows.length });
@@ -91,14 +97,26 @@ export function ingestSingleFile(filePath, onProgress) {
 
     const insertLog = db.prepare(`
       INSERT OR IGNORE INTO attendance_logs
-      (employee_id, date, time, source)
-      VALUES (?, ?, ?, 'Manual Upload')
+      (employee_id, date, time, source, upload_id)
+      VALUES (?, ?, ?, 'Manual Upload', ?)
+    `);
+
+    const insertUpload = db.prepare(`
+      INSERT INTO uploads (id, filename, records_inserted, records_skipped)
+      VALUES (?, ?, 0, 0)
+    `);
+
+    const updateUpload = db.prepare(`
+      UPDATE uploads SET records_inserted = ?, records_skipped = ? WHERE id = ?
     `);
     
     // Process rows with progress
     const batchSize = Math.max(1, Math.floor(rows.length / 20)); // Report progress ~20 times
     
     db.transaction(() => {
+      // Create upload record first
+      insertUpload.run(uploadId, filename);
+
       for (let i = 0; i < rows.length; i++) {
         const r = rows[i];
         
@@ -134,7 +152,7 @@ export function ingestSingleFile(filePath, onProgress) {
 
         try {
           insertEmployee.run(validatedEmployeeId, employeeName);
-          const info = insertLog.run(validatedEmployeeId, normalizedDate, normalizedTime);
+          const info = insertLog.run(validatedEmployeeId, normalizedDate, normalizedTime, uploadId);
           
           if (info.changes > 0) {
             result.inserted++;
@@ -158,9 +176,12 @@ export function ingestSingleFile(filePath, onProgress) {
           });
         }
       }
+
+      // Update upload record with final counts
+      updateUpload.run(result.inserted, result.skipped, uploadId);
     })();
     
-    logger.info("File processing complete", { file: path.basename(filePath), inserted: result.inserted, skipped: result.skipped, total: result.total });
+    logger.info("File processing complete", { file: filename, uploadId, inserted: result.inserted, skipped: result.skipped, total: result.total });
     
     onProgress?.({
       progress: 100,
@@ -171,7 +192,7 @@ export function ingestSingleFile(filePath, onProgress) {
     
     return result;
   } catch (err) {
-    logger.error("File processing failed", { file: path.basename(filePath), error: err.message });
+    logger.error("File processing failed", { file: filename, uploadId, error: err.message });
     throw err;
   }
 }

@@ -1,31 +1,26 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, lazy, Suspense } from "react";
+import { motion, AnimatePresence } from "framer-motion";
 import FairtechDark from "./assets/Fairtech-dark.svg";
 import FairtechLight from "./assets/Fairtech-light.svg";
 import SearchBar from "./components/SearchBar";
 import AttendanceCalendar from "./components/AttendanceCalendar";
 import LogsConsole from "./components/LogsConsole/LogsConsole";
-import SettingsDialog from "./components/SettingsDialog";
-import EmployeeMapDialog from "./components/EmployeeMapDialog";
-
-import UploadDialog from "./components/UploadDialog";
-import Reports from "./components/Reports";
-import DailyReport from "./components/DailyReport";
 import { apiFetch } from "./utils/api";
 import { to12Hour } from "./utils/time";
 import ToastHost from "./utils/ToastHost";
 import { FaUserEdit } from "react-icons/fa";
-import { TbRefreshDot } from "react-icons/tb";
+
+// Lazy load heavy components for better initial load performance
+const SettingsDialog = lazy(() => import("./components/SettingsDialog"));
+const EmployeeMapDialog = lazy(() => import("./components/EmployeeMapDialog"));
+const UploadDialog = lazy(() => import("./components/UploadDialog"));
+const UploadHistoryDialog = lazy(() => import("./components/UploadHistoryDialog"));
+const Reports = lazy(() => import("./components/Reports"));
+const DailyReport = lazy(() => import("./components/DailyReport"));
 
 // Icons
-import {
-  IoCalendarNumberSharp,
-  IoBook,
-  IoPersonSharp,
-  IoSettingsSharp,
-  IoClipboard,
-  IoAdd
-} from "react-icons/io5";
-import { LuSearchX } from "react-icons/lu";
+import { IoPersonSharp, IoSettingsSharp, IoAdd, IoTimeOutline } from "react-icons/io5";
+import { LuSearchX, LuCalendar, LuBookOpen, LuClipboardList, LuRefreshCcw } from "react-icons/lu";
 
 function App() {
   /* State */
@@ -41,6 +36,7 @@ function App() {
   const [theme, setTheme] = useState("dark");
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [uploadDialogOpen, setUploadDialogOpen] = useState(false);
+  const [uploadHistoryOpen, setUploadHistoryOpen] = useState(false);
 
   const [mapOpen, setMapOpen] = useState(false);
   const [attendanceSummary, setAttendanceSummary] = useState(null);
@@ -104,15 +100,20 @@ function App() {
     }, 1000);
   };
 
-  // Load Employees on mount and periodically
+  // Load Employees on mount and when data changes (via IPC invalidation)
   useEffect(() => {
     fetchEmployees();
 
-    const interval = setInterval(() => {
+    // Listen for attendance invalidation events (triggered after upload/delete)
+    const subId = window.ipc?.onAttendanceInvalidated?.(() => {
       fetchEmployees();
-    }, 15000);
+    });
 
-    return () => clearInterval(interval);
+    return () => {
+      if (subId !== undefined) {
+        window.ipc?.offAttendanceInvalidated?.(subId);
+      }
+    };
   }, []);
 
   // Theme
@@ -143,29 +144,36 @@ function App() {
 
   return (
     <main className="w-full h-screen flex bg-nero-900 text-nero-300 select-none">
-      <SettingsDialog
-        open={settingsOpen}
-        onClose={() => setSettingsOpen(false)}
-        theme={theme}
-        toggleTheme={toggleTheme}
-      />
-      <UploadDialog
-        open={uploadDialogOpen}
-        onClose={() => setUploadDialogOpen(false)}
-      />
-      <EmployeeMapDialog
-        open={mapOpen}
-        employee={selectedEmployee}
-        onClose={() => setMapOpen(false)}
-        onSaved={(newName) => {
-          fetchEmployees();
+      {/* Lazy-loaded dialogs wrapped in Suspense */}
+      <Suspense fallback={null}>
+        <SettingsDialog
+          open={settingsOpen}
+          onClose={() => setSettingsOpen(false)}
+          theme={theme}
+          toggleTheme={toggleTheme}
+        />
+        <UploadDialog
+          open={uploadDialogOpen}
+          onClose={() => setUploadDialogOpen(false)}
+        />
+        <EmployeeMapDialog
+          open={mapOpen}
+          employee={selectedEmployee}
+          onClose={() => setMapOpen(false)}
+          onSaved={(newName) => {
+            fetchEmployees();
 
-          // Update selected employee name instantly
-          setSelectedEmployee((prev) =>
-            prev ? { ...prev, name: newName } : prev
-          );
-        }}
-      />
+            // Update selected employee name instantly
+            setSelectedEmployee((prev) =>
+              prev ? { ...prev, name: newName } : prev
+            );
+          }}
+        />
+        <UploadHistoryDialog
+          open={uploadHistoryOpen}
+          onClose={() => setUploadHistoryOpen(false)}
+        />
+      </Suspense>
 
       {/* -------------------------------- Sidebar -------------------------------- */}
       <div className="w-14 bg-nero-800 border-r-2 border-nero-900 flex flex-col items-center gap-2 pb-3">
@@ -181,35 +189,35 @@ function App() {
 
         <button
           onClick={() => setActiveView("ATTENDANCE")}
-          className={`w-10 h-10 rounded-md flex items-center justify-center transition-colors cursor-pointer
+          className={`w-10 h-10 rounded-md flex items-center justify-center transition-colors cursor-pointer text-lg
         ${activeView === "ATTENDANCE"
-              ? "bg-nero-700 text-nero-300 text-xl"
+              ? "bg-nero-700 text-nero-300"
               : "text-nero-400 hover:bg-nero-700 hover:text-nero-100"}`}
           title="Attendance Calendar"
         >
-          <IoCalendarNumberSharp />
+          <LuCalendar />
         </button>
 
         <button
           onClick={() => setActiveView("LOGS")}
-          className={`w-10 h-10 rounded-md flex items-center justify-center transition-colors cursor-pointer
+          className={`w-10 h-10 rounded-md flex items-center justify-center transition-colors cursor-pointer text-lg
         ${activeView === "LOGS"
-              ? "bg-nero-700 text-nero-300 text-xl"
+              ? "bg-nero-700 text-nero-300"
               : "text-nero-400 hover:bg-nero-700 hover:text-nero-100"}`}
           title="Logs"
         >
-          <IoBook />
+          <LuBookOpen />
         </button>
 
         <button
           onClick={() => setActiveView("REPORTS")}
-          className={`w-10 h-10 rounded-md flex items-center justify-center transition-colors cursor-pointer
+          className={`w-10 h-10 rounded-md flex items-center justify-center transition-colors cursor-pointer text-lg
     ${activeView === "REPORTS"
-              ? "bg-nero-700 text-nero-300 text-xl"
+              ? "bg-nero-700 text-nero-300"
               : "text-nero-400 hover:bg-nero-700 hover:text-nero-100"}`}
           title="Reports"
         >
-          <IoClipboard />
+          <LuClipboardList />
         </button>
 
         <div className="flex-1" />
@@ -221,6 +229,15 @@ function App() {
           title="Upload Data"
         >
           <IoAdd className="text-2xl" />
+        </button>
+
+        {/* Upload History Button */}
+        <button
+          onClick={() => setUploadHistoryOpen(true)}
+          className="w-10 h-10 rounded-md hover:bg-nero-700 flex items-center justify-center text-nero-400 hover:text-nero-100 transition-colors cursor-pointer"
+          title="Upload History"
+        >
+          <IoTimeOutline className="text-xl" />
         </button>
 
         <button
@@ -257,27 +274,36 @@ function App() {
                   <div>No employee found</div>
                 </div>
               ) : (
-                filteredEmployees.map((emp) => {
-                  const isActive =
-                    selectedEmployee?.employeeId === emp.employeeId;
+                <AnimatePresence mode="popLayout">
+                  {filteredEmployees.map((emp, index) => {
+                    const isActive =
+                      selectedEmployee?.employeeId === emp.employeeId;
 
-                  return (
-                    <div
-                      key={emp.employeeId}
-                      onClick={() => setSelectedEmployee(emp)}
-                      className={`px-3 py-2 mb-1 rounded-md cursor-pointer transition-colors border-2
+                    return (
+                      <motion.div
+                        key={emp.employeeId}
+                        initial={{ opacity: 0, y: 8 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        exit={{ opacity: 0, scale: 0.95 }}
+                        transition={{
+                          duration: 0.2,
+                          delay: Math.min(index * 0.03, 0.3)
+                        }}
+                        onClick={() => setSelectedEmployee(emp)}
+                        className={`px-3 py-2 mb-1 rounded-md cursor-pointer transition-colors border-2
               ${isActive
-                          ? "bg-nero-700 text-nero-400 border-nero-400"
-                          : "bg-nero-800 border-transparent hover:bg-[#2b2b2b]"}
+                            ? "bg-nero-700 text-nero-400 border-nero-400"
+                            : "bg-nero-800 border-transparent hover:bg-[#2b2b2b]"}
             `}
-                    >
-                      <div className="text-sm font-medium">{emp.name}</div>
-                      <div className="text-xs text-nero-400">
-                        {formatEmpId(emp.employeeId)}
-                      </div>
-                    </div>
-                  );
-                })
+                      >
+                        <div className="text-sm font-medium">{emp.name}</div>
+                        <div className="text-xs text-nero-400">
+                          {formatEmpId(emp.employeeId)}
+                        </div>
+                      </motion.div>
+                    );
+                  })}
+                </AnimatePresence>
               )}
             </div>
           </div>
@@ -288,7 +314,12 @@ function App() {
 
           {/* REPORTS VIEW */}
           {activeView === "REPORTS" && (
-            <>
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              transition={{ duration: 0.15 }}
+              className="h-full flex flex-col"
+            >
               <div className="h-14 px-4 flex items-center justify-between bg-nero-800 border-b-2 border-nero-900">
                 <div className="text-lg font-semibold">
                   {reportTab === "monthly"
@@ -321,18 +352,29 @@ function App() {
               </div>
 
               <div className="flex-1 p-3 flex min-h-0">
-                {reportTab === "monthly" ? (
-                  <Reports onGenerated={(m, y) => setReportPeriod({ month: m, year: y })} />
-                ) : (
-                  <DailyReport onGenerated={(dateStr) => setDailyReportDate(dateStr)} />
-                )}
+                <Suspense fallback={
+                  <div className="flex-1 flex items-center justify-center text-nero-500">
+                    <div className="w-6 h-6 border-2 border-nero-600 border-t-nero-400 rounded-full animate-spin" />
+                  </div>
+                }>
+                  {reportTab === "monthly" ? (
+                    <Reports onGenerated={(m, y) => setReportPeriod({ month: m, year: y })} />
+                  ) : (
+                    <DailyReport onGenerated={(dateStr) => setDailyReportDate(dateStr)} />
+                  )}
+                </Suspense>
               </div>
-            </>
+            </motion.div>
           )}
 
           {/* EMPTY STATE */}
           {activeView !== "REPORTS" && !selectedEmployee && (
-            <div className="flex-1 flex flex-col items-center justify-center text-nero-450">
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              transition={{ duration: 0.15 }}
+              className="flex-1 flex flex-col items-center justify-center text-nero-450"
+            >
               <IoPersonSharp className="text-6xl mb-3 opacity-60" />
               <div className="text-lg font-medium text-nero-300">
                 No Employee Selected
@@ -340,12 +382,17 @@ function App() {
               <div className="text-sm text-nero-500 mt-1">
                 Select an employee from the list
               </div>
-            </div>
+            </motion.div>
           )}
 
           {/* ATTENDANCE */}
           {selectedEmployee && activeView === "ATTENDANCE" && (
-            <>
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              transition={{ duration: 0.15 }}
+              className="h-full flex flex-col"
+            >
               <div className="h-14 px-4 flex items-center justify-between bg-nero-800 border-b-2 border-nero-900">
                 <div className="flex flex-col">
                   <div className="flex items-center gap-2">
@@ -374,7 +421,7 @@ function App() {
                   title="Refresh view"
                   className="w-8 h-8 flex items-center justify-center rounded-md bg-nero-700 hover:bg-nero-600 disabled:opacity-50 transition-colors group cursor-pointer"
                 >
-                  <TbRefreshDot
+                  <LuRefreshCcw
                     size={16}
                     className={`${refreshing ? "animate-spin" : ""} group-hover:text-white transition-colors`}
                   />
@@ -382,9 +429,9 @@ function App() {
               </div>
 
               <div className="px-3 pt-2 pb-0 flex flex-col justify-center">
-                <div className="w-full bg-nero-700 px-3 rounded-md flex items-center justify-between">
+                <div className="w-full bg-nero-700 px-4 py-1 rounded-md flex items-center justify-between">
 
-                  <div className="flex gap-3 text-[13px]">
+                  <div className="flex gap-3 text-[14px]">
 
                     {/* MONTH VIEW SUMMARY */}
                     {attendanceView === "dayGridMonth" && (
@@ -444,12 +491,17 @@ function App() {
                   onDayStats={setAttendanceDayStats}
                 />
               </div>
-            </>
+            </motion.div>
           )}
 
           {/* LOGS */}
           {selectedEmployee && activeView === "LOGS" && (
-            <>
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              transition={{ duration: 0.15 }}
+              className="h-full flex flex-col"
+            >
               <div className="h-14 px-4 flex items-center justify-between bg-nero-800 border-b-2 border-nero-900">
                 <div className="flex flex-col">
                   <div className="flex items-center gap-2">
@@ -471,6 +523,7 @@ function App() {
                   </div>
                 </div>
 
+
                 {/* Soft Refresh Button */}
                 <button
                   onClick={handleSoftRefresh}
@@ -478,7 +531,7 @@ function App() {
                   title="Refresh view"
                   className="w-8 h-8 flex items-center justify-center rounded-md bg-nero-700 hover:bg-nero-600 disabled:opacity-50 transition-colors group"
                 >
-                  <TbRefreshDot
+                  <LuRefreshCcw
                     size={16}
                     className={`${refreshing ? "animate-spin" : ""} group-hover:text-white transition-colors`}
                   />
@@ -487,9 +540,9 @@ function App() {
 
               <div className="px-3 pt-2 pb-0 flex flex-col justify-center">
 
-                <div className="w-full bg-nero-700 px-3 rounded-md flex items-center justify-between">
+                <div className="w-full bg-nero-700 px-4 py-1 rounded-md flex items-center justify-between">
 
-                  <div className="flex gap-3 text-[13px]">
+                  <div className="flex gap-3 text-[14px]">
                     <span className="text-emerald-300">
                       Working: {logsDayStats?.working || "0h 0m"}
                     </span>
@@ -516,13 +569,13 @@ function App() {
                   onDayStats={setLogsDayStats}
                 />
               </div>
-            </>
+            </motion.div>
           )}
         </div>
-      </div>
+      </div >
 
       <ToastHost />
-    </main>
+    </main >
   );
 }
 

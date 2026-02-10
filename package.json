@@ -48,6 +48,7 @@
     "date-fns": "^4.1.0",
     "electron-store": "^11.0.2",
     "express": "^4.19.2",
+    "framer-motion": "^11.15.0",
     "jspdf": "^4.0.0",
     "jspdf-autotable": "^5.0.7",
     "material-react-table": "^3.2.1",

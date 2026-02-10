@@ -117,29 +117,52 @@ const datePickerStyles = `
     color: #fff;
 }
 
-.dark-datepicker-popper .react-datepicker__day--selected,
-.dark-datepicker-popper .react-datepicker__day--keyboard-selected {
+
+/* Selected - only explicit user selection */
+.dark-datepicker-popper .react-datepicker__day--selected {
     background-color: #10b981 !important;
     color: #000 !important;
     font-weight: 600;
 }
 
-.dark-datepicker-popper .react-datepicker__day--today {
-    background-color: #1f2937;
-    font-weight: 600;
+/* Keyboard-selected (auto-focus on open) - should NOT be highlighted */
+.dark-datepicker-popper .react-datepicker__day--keyboard-selected:not(.react-datepicker__day--selected) {
+    background-color: transparent !important;
+    color: #e5e7eb !important;
+    font-weight: normal;
 }
+
+
+
 
 .dark-datepicker-popper .react-datepicker__day--outside-month {
     color: #4b5563;
 }
 
 .dark-datepicker-popper .react-datepicker__day--disabled {
+
     color: #838E9A !important;
+
     cursor: not-allowed;
+
 }
 
+
+
+/* Suppress default highlight for today's day */
+
+.dark-datepicker-popper .react-datepicker__day--today {
+
+    background-color: transparent;
+
+}
+
+
+
 .dark-datepicker-popper .react-datepicker__navigation {
+
     top: 12px;
+
 }
 
 .dark-datepicker-popper .react-datepicker__navigation-icon::before {
@@ -304,9 +327,24 @@ async function fetchDailyReport(date) {
                 workingMins = totalMins - breakMins;
 
                 // Determine status: <5hrs=Absent, 5-8hrs=Half Day, ≥8hrs=Full Day
-                if (workingMins >= 8 * 60) status = "Full Day";
-                else if (workingMins >= 5 * 60) status = "Half Day";
-                // Less than 5 hours stays Absent
+                // Exception: Sunday work < 5 hours is treated as Holiday (to prevent Absent status on Sundays)
+                const dateObj = new Date(date);
+                const isSunday = dateObj.getDay() === 0;
+
+                if (workingMins >= 8 * 60) {
+                    status = "Full Day";
+                } else if (workingMins >= 5 * 60) {
+                    status = "Half Day";
+                } else if (isSunday) {
+                    // Sunday work < 5 hours is Holiday
+                    status = "Holiday";
+                }
+                // Else (< 5 hours and not Sunday) remains Absent
+            }
+        } else {
+            const dateObj = new Date(date);
+            if (dateObj.getDay() === 0) {
+                status = "Holiday";
             }
         }
 
@@ -332,6 +370,10 @@ function getStatusBadge(status) {
             return "bg-emerald-500/15 text-emerald-400";
         case "Half Day":
             return "bg-amber-500/15 text-amber-400";
+        case "Extra":
+            return "bg-purple-500/15 text-purple-400"; // Changed to purple
+        case "Holiday":
+            return "bg-pink-500/15 text-pink-400";
         case "Absent":
             return "bg-red-500/15 text-red-400";
         default:
@@ -397,52 +439,115 @@ export default function DailyReport({ onGenerated }) {
         }
     };
 
-    // Auto-generate report when date is selected
-    useEffect(() => {
-        if (selectedDate) {
-            generateReport();
-        }
-    }, [selectedDate]);
+    // Table Data (Moved top to avoid ReferenceError)
+    const tableData = useMemo(() => {
+        return rows.map((r, idx) => ({
+            ...r,
+            employeeId: r.employeeId.startsWith("EMP")
+                ? r.employeeId
+                : `EMP${String(idx + 1).padStart(3, "0")}`,
+        }));
+    }, [rows]);
 
+    // Summary stats
+    const stats = useMemo(() => {
+        const fullDay = tableData.filter(r => r.status === "Full Day").length;
+        const halfDay = tableData.filter(r => r.status === "Half Day").length;
+        const absent = tableData.filter(r => r.status === "Absent").length;
+        const holiday = tableData.filter(r => r.status === "Holiday").length;
+        return { fullDay, halfDay, absent, holiday };
+    }, [tableData]);
+
+    // Export Excel
     const exportExcel = async () => {
         try {
             setIsExporting(true);
             setExportType("excel");
-
             await new Promise(resolve => setTimeout(resolve, 100));
 
+            // Map data to columns
             const data = tableData.map(r => ({
-                "Employee ID": r.employeeId,
-                "Employee Name": r.employeeName,
+                "ID": r.employeeId,
+                "Name": r.employeeName,
                 "First In": r.firstIn ? to12Hour(r.firstIn) : "--",
                 "Last Out": r.lastOut ? to12Hour(r.lastOut) : "--",
-                "Working Hours": formatMinutes(r.workingMins),
-                "Break Hours": formatMinutes(r.breakMins),
+                "Duration": formatMinutes(r.workingMins),
                 "Punches": r.punchCount,
-                "Status": r.status,
+                "Status": r.status
             }));
 
             const ws = XLSX.utils.json_to_sheet(data);
 
+            // HEADER ROW STYLING
+            const headers = Object.keys(data[0]);
+            headers.forEach((h, i) => {
+                const cell = XLSX.utils.encode_cell({ r: 0, c: i });
+                if (!ws[cell]) ws[cell] = { t: "s", v: h }; // Ensure cell exists
+                ws[cell].s = {
+                    font: { bold: true },
+                    alignment: { horizontal: "center", vertical: "center" },
+                    border: {
+                        top: { style: "thin" },
+                        bottom: { style: "thin" },
+                        left: { style: "thin" },
+                        right: { style: "thin" },
+                    },
+                    fill: { fgColor: { rgb: "EFEFEF" } } // Light gray background
+                };
+            });
+
+            // ROW HEIGHT
+            ws["!rows"] = [{ hpt: 20 }];
+
+            // AUTOFILTER
+            ws["!autofilter"] = { ref: ws["!ref"] };
+
+            // COLUMN WIDTHS
             ws["!cols"] = [
-                { wch: 14 },
-                { wch: 22 },
-                { wch: 12 },
-                { wch: 12 },
-                { wch: 14 },
-                { wch: 12 },
-                { wch: 10 },
-                { wch: 12 },
+                { wch: 12 }, // ID
+                { wch: 22 }, // Name
+                { wch: 12 }, // In
+                { wch: 12 }, // Out
+                { wch: 12 }, // Duration
+                { wch: 10 }, // Punches
+                { wch: 14 }, // Status
             ];
 
-            const wb = XLSX.utils.book_new();
-            XLSX.utils.book_append_sheet(wb, ws, "Daily Attendance");
+            // ALIGNMENT & BORDERS (Data Rows)
+            const range = XLSX.utils.decode_range(ws["!ref"]);
+            for (let R = 1; R <= range.e.r; R++) {
+                for (let C = 0; C <= range.e.c; C++) {
+                    const addr = XLSX.utils.encode_cell({ r: R, c: C });
+                    const cell = ws[addr];
+                    if (!cell) continue;
 
-            XLSX.writeFile(wb, `Daily Attendance Report ${selectedDate}.xlsx`);
-            setError(null);
-        } catch (err) {
-            console.error("Excel export failed", err);
-            setError("Failed to export Excel file.");
+                    cell.s = {
+                        alignment: {
+                            horizontal: C === 1 ? "left" : "center", // Align Name left, others center
+                            vertical: "center",
+                        },
+                        border: {
+                            top: { style: "thin" },
+                            bottom: { style: "thin" },
+                            left: { style: "thin" },
+                            right: { style: "thin" },
+                        },
+                    };
+                }
+            }
+
+            // FREEZE HEADER
+            ws["!freeze"] = { xSplit: 0, ySplit: 1 };
+
+            const wb = XLSX.utils.book_new();
+            XLSX.utils.book_append_sheet(wb, ws, "Daily Report");
+
+            // Format Filename
+            const dateStr = selectedDate ? selectedDate.toLocaleDateString('en-GB').replace(/\//g, '-') : 'report';
+            XLSX.writeFile(wb, `Daily_Attendance_${dateStr}.xlsx`);
+        } catch (error) {
+            console.error("Export failed", error);
+            setError("Failed to export Excel");
         } finally {
             setIsExporting(false);
             setExportType("");
@@ -453,11 +558,10 @@ export default function DailyReport({ onGenerated }) {
         try {
             setIsExporting(true);
             setExportType("pdf");
-
             await new Promise(resolve => setTimeout(resolve, 100));
 
             const doc = new jsPDF({
-                orientation: "landscape",
+                orientation: "portrait",
                 unit: "pt",
                 format: "a4",
             });
@@ -465,6 +569,7 @@ export default function DailyReport({ onGenerated }) {
             const pageWidth = doc.internal.pageSize.getWidth();
             const pageHeight = doc.internal.pageSize.getHeight();
 
+            // COLORS (STRICT B/W) - Same as Reports.jsx
             const COLORS = {
                 text: "#000000",
                 muted: "#4b5563",
@@ -473,7 +578,7 @@ export default function DailyReport({ onGenerated }) {
                 rowAlt: "#fafafa",
             };
 
-            // Header
+            // HEADER
             doc.setFont("helvetica", "bold");
             doc.setFontSize(11);
             doc.setTextColor(COLORS.text);
@@ -482,26 +587,29 @@ export default function DailyReport({ onGenerated }) {
             doc.setFont("helvetica", "normal");
             doc.setFontSize(9);
             doc.setTextColor(COLORS.muted);
-            doc.text(`Date: ${selectedDate}`, pageWidth - 36, 28, { align: "right" });
+            const dateStr = selectedDate ? selectedDate.toLocaleDateString("en-US", {
+                weekday: "long", year: "numeric", month: "long", day: "numeric"
+            }) : "";
+            doc.text(`Date: ${dateStr}`, pageWidth - 36, 28, { align: "right" });
 
             doc.setDrawColor(COLORS.border);
             doc.setLineWidth(0.8);
             doc.line(36, 36, pageWidth - 36, 36);
 
-            // Table
+            // TABLE
             autoTable(doc, {
-                startY: 44,
+                startY: 44, // Adjusted startY since summary is gone
                 margin: { left: 36, right: 36 },
+                tableWidth: pageWidth,
 
                 head: [[
-                    "Employee ID",
+                    "ID",
                     "Employee Name",
                     "First In",
                     "Last Out",
-                    "Working Hours",
-                    "Break Hours",
+                    "Duration",
                     "Punches",
-                    "Status",
+                    "Status"
                 ]],
 
                 body: tableData.map(r => [
@@ -510,9 +618,8 @@ export default function DailyReport({ onGenerated }) {
                     r.firstIn ? to12Hour(r.firstIn) : "--",
                     r.lastOut ? to12Hour(r.lastOut) : "--",
                     formatMinutes(r.workingMins),
-                    formatMinutes(r.breakMins),
                     r.punchCount,
-                    r.status,
+                    r.status
                 ]),
 
                 theme: "grid",
@@ -538,63 +645,84 @@ export default function DailyReport({ onGenerated }) {
                 },
 
                 columnStyles: {
-                    0: { halign: "center", cellWidth: 70 },
-                    1: { halign: "left", cellWidth: 150 },
-                    2: { halign: "center", cellWidth: 70 },
-                    3: { halign: "center", cellWidth: 70 },
-                    4: { halign: "center", cellWidth: 80 },
-                    5: { halign: "center", cellWidth: 70 },
-                    6: { halign: "center", cellWidth: 55 },
-                    7: { halign: "center", cellWidth: 70 },
+                    0: { halign: "center", cellWidth: 53 }, // ID
+                    1: { halign: "left", cellWidth: 120 },   // Name
+                    2: { halign: "center", cellWidth: 66 },  // In
+                    3: { halign: "center", cellWidth: 66 },  // Out
+                    4: { halign: "center", cellWidth: 66 },  // Duration
+                    5: { halign: "center", cellWidth: 66 },  // Punches
+                    6: { halign: "center", cellWidth: 86 },  // Status
                 },
 
                 alternateRowStyles: {
                     fillColor: COLORS.rowAlt,
                 },
+
+                didDrawPage: (data) => {
+                    const pageNum = doc.internal.getCurrentPageInfo().pageNumber;
+                    const totalPages = doc.internal.getNumberOfPages();
+
+                    doc.setFont("helvetica", "normal");
+                    doc.setFontSize(7.5); // Matched Reports.jsx font size
+                    doc.setTextColor(COLORS.muted);
+
+                    doc.text(
+                        `Page ${pageNum} of ${totalPages}`,
+                        20,
+                        pageHeight - 22
+                    );
+                },
             });
 
-            // Footer
+            // FOOTER (TIMESTAMP) - Added to match Reports.jsx
             const now = new Date();
+            const formattedDateTime = now.toLocaleString("en-US", {
+                year: "numeric",
+                month: "short",
+                day: "numeric",
+                hour: "2-digit",
+                minute: "2-digit",
+            });
+
             doc.setFont("helvetica", "normal");
             doc.setFontSize(7.5);
             doc.setTextColor(COLORS.muted);
+
             doc.text(
-                `Generated on: ${now.toLocaleString()}`,
+                `Generated on: ${formattedDateTime}`,
                 pageWidth - 20,
                 pageHeight - 22,
                 { align: "right" }
             );
 
-            doc.save(`Daily Attendance Report ${selectedDate}.pdf`);
-            setError(null);
-        } catch (err) {
-            console.error("PDF export failed", err);
-            setError("Failed to export PDF file.");
+            const filenameDate = selectedDate ? selectedDate.toLocaleDateString('en-GB').replace(/\//g, '-') : 'report';
+            doc.save(`Daily_Attendance_${filenameDate}.pdf`);
+
+        } catch (error) {
+            console.error("PDF Export failed", error);
+            setError("Failed to export PDF");
         } finally {
             setIsExporting(false);
             setExportType("");
         }
     };
 
-    // Table Data
-    const tableData = useMemo(() => {
-        return rows.map((r, idx) => ({
-            ...r,
-            employeeId: r.employeeId.startsWith("EMP")
-                ? r.employeeId
-                : `EMP${String(idx + 1).padStart(3, "0")}`,
-        }));
-    }, [rows]);
+    // Auto-generate report when date is selected
+    useEffect(() => {
+        if (selectedDate) {
+            generateReport();
+        }
+    }, [selectedDate]);
 
     // Columns
     const columns = useMemo(
         () => [
-            { accessorKey: "employeeId", header: "ID", size: 100 },
-            { accessorKey: "employeeName", header: "Employee", size: 200 },
+            { accessorKey: "employeeId", header: "ID", size: 80 },
+            { accessorKey: "employeeName", header: "Employee", size: 180 },
             {
                 accessorKey: "firstIn",
                 header: "First In",
-                size: 100,
+                size: 90,
                 Cell: ({ cell }) => (
                     <span className="text-emerald-400 font-medium">
                         {cell.getValue() ? to12Hour(cell.getValue()) : "--"}
@@ -604,7 +732,7 @@ export default function DailyReport({ onGenerated }) {
             {
                 accessorKey: "lastOut",
                 header: "Last Out",
-                size: 100,
+                size: 90,
                 Cell: ({ cell }) => (
                     <span className="text-red-400 font-medium">
                         {cell.getValue() ? to12Hour(cell.getValue()) : "--"}
@@ -614,7 +742,7 @@ export default function DailyReport({ onGenerated }) {
             {
                 accessorKey: "workingMins",
                 header: "Working",
-                size: 100,
+                size: 90,
                 Cell: ({ cell }) => (
                     <span className="text-blue-400 font-medium">
                         {formatMinutes(cell.getValue())}
@@ -624,7 +752,7 @@ export default function DailyReport({ onGenerated }) {
             {
                 accessorKey: "breakMins",
                 header: "Breaks",
-                size: 100,
+                size: 90,
                 Cell: ({ cell }) => (
                     <span className="text-amber-400 font-medium">
                         {formatMinutes(cell.getValue())}
@@ -642,7 +770,7 @@ export default function DailyReport({ onGenerated }) {
             {
                 accessorKey: "status",
                 header: "Status",
-                size: 110,
+                size: 100,
                 Cell: ({ cell }) => {
                     const status = cell.getValue();
                     const cls = getStatusBadge(status);
@@ -656,14 +784,6 @@ export default function DailyReport({ onGenerated }) {
         ],
         []
     );
-
-    // Summary stats
-    const stats = useMemo(() => {
-        const fullDay = tableData.filter(r => r.status === "Full Day").length;
-        const halfDay = tableData.filter(r => r.status === "Half Day").length;
-        const absent = tableData.filter(r => r.status === "Absent").length;
-        return { fullDay, halfDay, absent };
-    }, [tableData]);
 
     return (
         <div className="w-full h-full flex flex-col gap-3">
@@ -680,6 +800,8 @@ export default function DailyReport({ onGenerated }) {
                     <span className="text-emerald-400">Full Day: {stats.fullDay}</span>
                     <span className="text-amber-400">Half Day: {stats.halfDay}</span>
                     <span className="text-red-400">Absent: {stats.absent}</span>
+
+                    <span className="text-pink-400">Holiday: {stats.holiday}</span>
                     <span className="text-nero-500">|</span>
                     <span>Total: {tableData.length}</span>
                 </div>
@@ -699,7 +821,7 @@ export default function DailyReport({ onGenerated }) {
                     {/* Date Picker (Moved to Right) */}
                     <div className="dark-datepicker-wrapper relative">
                         <DatePicker
-                            selected={selectedDate}
+                            selected={selectedDate || undefined}
                             onChange={(date) => setSelectedDate(date)}
                             dateFormat="dd MMM yyyy"
                             placeholderText="Select date"
@@ -749,7 +871,7 @@ export default function DailyReport({ onGenerated }) {
             )}
 
             {/* Table */}
-            <div className="flex-1 border border-nero-700 rounded-md overflow-hidden bg-[#0b0b0b] flex flex-col">
+            <div className="flex-1 min-w-0 border border-nero-700 rounded-md overflow-hidden bg-[#0b0b0b] flex flex-col">
                 {isGenerating ? (
                     <div className="flex-1 flex flex-col items-center justify-center text-nero-400 gap-4">
                         <svg className="animate-spin h-10 w-10 text-emerald-500" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
@@ -760,7 +882,7 @@ export default function DailyReport({ onGenerated }) {
                         <div className="text-sm text-nero-500">Please wait while we fetch the attendance data</div>
                     </div>
                 ) : rows.length === 0 ? (
-                    <div className="flex-1 flex items-center justify-center text-nero-500 text-sm">
+                    <div className="flex-1 flex items-center justify-center text-nero-500 text-lg">
                         Select a date and generate a daily report
                     </div>
                 ) : (
@@ -769,7 +891,7 @@ export default function DailyReport({ onGenerated }) {
                         <MaterialReactTable
                             columns={columns}
                             data={tableData}
-                            layoutMode="grid"
+                            layoutMode="semantic"
                             enableStickyHeader
                             enableDensityToggle={false}
                             enableColumnActions
@@ -781,7 +903,7 @@ export default function DailyReport({ onGenerated }) {
                             enableRowSelection={false}
                             enableColumnFilters={true}
                             enableColumnOrdering={false}
-                            enableColumnResizing={false}
+                            // enableColumnResizing={true}
                             enablePagination
                             enableBottomToolbar
                             enableTopToolbar
@@ -790,7 +912,9 @@ export default function DailyReport({ onGenerated }) {
                                 className: "minimal-scrollbar",
                                 sx: {
                                     flex: 1,
-                                    overflow: "auto",
+                                    width: "100%",
+                                    height: "100%", // Fill flex parent
+                                    overflow: "auto"
                                 },
                             }}
 

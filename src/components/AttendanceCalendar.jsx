@@ -34,11 +34,15 @@ function toCalendarEvent(d) {
     backgroundColor:
       d.status === "Full Day" ? "#2e7d32"
         : d.status === "Half Day" ? "#b7791f"
-          : d.status === "Absent" ? "#8b1d1d"
-            : "transparent",
+          : d.status === "Extra" ? "#5b2d8b"
+            : d.status === "Holiday" ? "#8a2c5b"
+              : d.status === "Absent" ? "#8b1d1d"
+                : "transparent",
     borderColor: "transparent",
+    textColor: "#ffffff",
   };
 }
+
 
 function renderAttendanceEvent(info) {
   const { firstIn, lastOut } = info.event.extendedProps;

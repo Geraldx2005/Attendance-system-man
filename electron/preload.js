@@ -63,6 +63,8 @@ contextBridge.exposeInMainWorld("api", {
   getAttendance: (employeeId, month) => ipcRenderer.invoke("api:get-attendance", { employeeId, month }),
   getMonthlyReport: (month) => ipcRenderer.invoke("api:get-monthly-report", { month }),
   updateEmployeeName: (employeeId, name) => ipcRenderer.invoke("api:update-employee", { employeeId, name }),
+  getUploadHistory: () => ipcRenderer.invoke("api:get-upload-history"),
+  deleteUpload: (uploadId) => ipcRenderer.invoke("api:delete-upload", { uploadId }),
 });
 
 /* Internal token removed - not needed in renderer context */

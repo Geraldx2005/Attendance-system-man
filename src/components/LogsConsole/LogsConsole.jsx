@@ -10,44 +10,37 @@ import {
 } from "react-icons/io5";
 
 /* ─── Helpers ─────────────────────────────────────────────────────────────── */
-function getDateKey(dateStr) {
-  try {
-    const logDate   = new Date(dateStr);
-    const today     = new Date();
-    const yesterday = new Date();
-
-    today.setHours(0, 0, 0, 0);
-    yesterday.setDate(today.getDate() - 1);
-    yesterday.setHours(0, 0, 0, 0);
-    logDate.setHours(0, 0, 0, 0);
-
-    if (logDate.getTime() === today.getTime())     return "today";
-    if (logDate.getTime() === yesterday.getTime()) return "yesterday";
-    return "other";
-  } catch {
-    return "other";
+// Simplified: Since we always view one specific day, everything is "today" relative to that day
+function getDateKey(dateStr, selectedDate) {
+  if (!selectedDate) return "other";
+  const d = new Date(dateStr);
+  const sel = new Date(selectedDate);
+  // Compare YYYY-MM-DD
+  if (
+    d.getFullYear() === sel.getFullYear() &&
+    d.getMonth() === sel.getMonth() &&
+    d.getDate() === sel.getDate()
+  ) {
+    return "selected"; // Key used for filtering
   }
+  return "other";
 }
 
-/* ─── Per-day IN/OUT derivation ──────────────────────────────────────────────
- * Rows arrive sorted by (date, time).  The IN/OUT alternation must reset at
- * every date boundary — using a flat array index breaks when the previous day
- * has an odd punch count.
- * ─────────────────────────────────────────────────────────────────────────── */
-function deriveTypes(rows) {
-  const result     = [];
-  let   currentDate = null;
-  let   dayIndex    = 0;
+/* ─── Per-day IN/OUT derivation ────────────────────────────────────────────── */
+function deriveTypes(rows, selectedDate) {
+  const result = [];
+  let currentDate = null;
+  let dayIndex = 0;
 
   for (const row of rows) {
     if (row.date !== currentDate) {
       currentDate = row.date;
-      dayIndex    = 0;
+      dayIndex = 0;
     }
     result.push({
       ...row,
-      type:    dayIndex % 2 === 0 ? "IN" : "OUT",
-      dateKey: getDateKey(row.date),
+      type: dayIndex % 2 === 0 ? "IN" : "OUT",
+      dateKey: getDateKey(row.date, selectedDate),
     });
     dayIndex++;
   }
@@ -56,16 +49,16 @@ function deriveTypes(rows) {
 
 /* ─── Component ───────────────────────────────────────────────────────────── */
 export default function LogsConsole({ employee, onDayStats }) {
-  const [logs, setLogs]           = useState([]);
-  const [dateFilter, setDateFilter] = useState("today");
+  const [logs, setLogs] = useState([]);
+  const [selectedDate, setSelectedDate] = useState(new Date()); // Default to Today
   const [typeFilter, setTypeFilter] = useState("all");
   const [summaryMode, setSummaryMode] = useState(false);
-  const [isLoading, setIsLoading]   = useState(false);
-  const [error, setError]           = useState(null);
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState(null);
 
-  const requestRef      = useRef(0);
+  const requestRef = useRef(0);
   const invalidateTimer = useRef(null);
-  const isMounted       = useRef(true);
+  const isMounted = useRef(true);
 
   const handleTypeChange = useCallback((type) => {
     setTypeFilter(type);
@@ -79,7 +72,7 @@ export default function LogsConsole({ employee, onDayStats }) {
 
   // ── core fetch ───────────────────────────────────────────────────────────
   const loadLogs = useCallback(async () => {
-    if (!employee) {
+    if (!employee || !selectedDate) {
       setLogs([]);
       setIsLoading(false);
       setError(null);
@@ -88,10 +81,10 @@ export default function LogsConsole({ employee, onDayStats }) {
 
     const reqId = ++requestRef.current;
 
-    const today = new Date();
-    const from  = new Date(today);
-    from.setDate(today.getDate() - 1);
-    const fmt = (d) => d.toISOString().slice(0, 10);
+    // Fetch logs for the single selected date
+    // Used local date formatting "YYYY-MM-DD"
+    const fmt = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    const dateStr = fmt(selectedDate);
 
     setIsLoading(true);
     setError(null);
@@ -101,8 +94,9 @@ export default function LogsConsole({ employee, onDayStats }) {
         throw new Error("IPC API not available. Please restart the application.");
       }
 
+      // Using from=dateStr & to=dateStr fetches logs specifically for that day
       const response = await apiFetch(
-        `/api/logs/${employee.employeeId}?from=${fmt(from)}&to=${fmt(today)}`
+        `/api/logs/${employee.employeeId}?from=${dateStr}&to=${dateStr}`
       );
 
       if (reqId !== requestRef.current || !isMounted.current) return;
@@ -126,7 +120,7 @@ export default function LogsConsole({ employee, onDayStats }) {
       });
 
       // Per-day IN/OUT + stable ids
-      const formatted = deriveTypes(data).map((l, i) => ({
+      const formatted = deriveTypes(data, selectedDate).map((l, i) => ({
         ...l,
         id: `${l.date}-${l.time}-${i}`,
       }));
@@ -140,12 +134,12 @@ export default function LogsConsole({ employee, onDayStats }) {
       if (reqId !== requestRef.current || !isMounted.current) return;
 
       let errorMessage = "Failed to load attendance logs";
-      if      (err.message.includes("IPC API not available")) errorMessage = "Application error. Please restart the app";
+      if (err.message.includes("IPC API not available")) errorMessage = "Application error. Please restart the app";
       else if (err.message.includes("404") || err.message.includes("not found")) errorMessage = "No attendance data found for this employee";
-      else if (err.message.includes("500") || err.message.includes("Internal"))  errorMessage = "Database error. Please try again";
-      else if (err.message.includes("Invalid data"))  errorMessage = "Invalid data received. Please contact support";
-      else if (err.message.includes("window.api"))    errorMessage = "IPC communication error. Please restart the app";
-      else if (err.message.includes("Unknown API"))   errorMessage = "API endpoint not found";
+      else if (err.message.includes("500") || err.message.includes("Internal")) errorMessage = "Database error. Please try again";
+      else if (err.message.includes("Invalid data")) errorMessage = "Invalid data received. Please contact support";
+      else if (err.message.includes("window.api")) errorMessage = "IPC communication error. Please restart the app";
+      else if (err.message.includes("Unknown API")) errorMessage = "API endpoint not found";
 
       if (isMounted.current) {
         setError(errorMessage);
@@ -156,7 +150,7 @@ export default function LogsConsole({ employee, onDayStats }) {
         setIsLoading(false);
       }
     }
-  }, [employee]);
+  }, [employee, selectedDate]);
 
   const handleRetry = useCallback(() => {
     setError(null);
@@ -214,13 +208,14 @@ export default function LogsConsole({ employee, onDayStats }) {
   }, [employee, loadLogs]);
 
   // ── derived state ────────────────────────────────────────────────────────
+  // Simplified: All logs fetched are for the selected date, so just filter by type
   const dayLogs = useMemo(
-    () => logs.filter((l) => l.dateKey === dateFilter),
-    [logs, dateFilter]
+    () => logs.filter((l) => l.dateKey === "selected"),
+    [logs]
   );
 
   const filteredLogs = useMemo(() => {
-    if (typeFilter === "in")  return dayLogs.filter((l) => l.type === "IN");
+    if (typeFilter === "in") return dayLogs.filter((l) => l.type === "IN");
     if (typeFilter === "out") return dayLogs.filter((l) => l.type === "OUT");
     return dayLogs;
   }, [dayLogs, typeFilter]);
@@ -236,8 +231,8 @@ export default function LogsConsole({ employee, onDayStats }) {
   const logsToShow = useMemo(() => {
     if (summaryMode && daySummary?.firstIn && daySummary?.lastOut) {
       return [
-        { ...daySummary.firstIn,  type: "IN",  id: "summary-first" },
-        { ...daySummary.lastOut,  type: "OUT", id: "summary-last"  },
+        { ...daySummary.firstIn, type: "IN", id: "summary-first" },
+        { ...daySummary.lastOut, type: "OUT", id: "summary-last" },
       ];
     }
     return filteredLogs;
@@ -247,8 +242,8 @@ export default function LogsConsole({ employee, onDayStats }) {
   return (
     <div className="flex flex-col flex-1 min-h-0 gap-3">
       <LogsToolbar
-        dateFilter={dateFilter}
-        setDateFilter={setDateFilter}
+        selectedDate={selectedDate}
+        onDateChange={setSelectedDate}
         typeFilter={typeFilter}
         onTypeChange={handleTypeChange}
         summaryMode={summaryMode}
