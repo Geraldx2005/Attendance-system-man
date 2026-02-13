@@ -23,11 +23,9 @@ export function generateMonthlyReport(month) {
     SELECT 
       employee_id,
       date,
-      MIN(time) as first_in,
-      MAX(time) as last_out
-    FROM attendance_logs 
+      punches
+    FROM daily_attendance
     WHERE date BETWEEN ? AND ?
-    GROUP BY employee_id, date
   `).all(from, to);
 
   // 3. Create a lookup map: employeeId -> date -> log
@@ -36,7 +34,19 @@ export function generateMonthlyReport(month) {
     if (!logMap.has(log.employee_id)) {
       logMap.set(log.employee_id, new Map());
     }
-    logMap.get(log.employee_id).set(log.date, log);
+    
+    // Parse first_in and last_out from punches string
+    let first_in = null;
+    let last_out = null;
+    if (log.punches) {
+        const times = log.punches.split(", ").map(t => t.trim()).sort();
+        if (times.length > 0) {
+            first_in = times[0];
+            last_out = times[times.length - 1];
+        }
+    }
+    
+    logMap.get(log.employee_id).set(log.date, { ...log, first_in, last_out });
   }
 
   // 4. Determine expected days in the month
@@ -67,8 +77,8 @@ export function generateMonthlyReport(month) {
       present: 0,
       halfDay: 0,
       absent: 0,
-      holiday: 0,
-      extra: 0,
+      weeklyOff: 0,
+      woWorked: 0,
       totalPresent: 0,
     };
 
@@ -89,16 +99,16 @@ export function generateMonthlyReport(month) {
         if (inMins !== null && outMins !== null && outMins > inMins) {
           const workedMins = outMins - inMins;
           
-          // Sunday logic: < 5 hours is Holiday (not Absent)
+          // Sunday logic: < 5 hours is Weekly Off (not Absent)
           if (isSunday && workedMins < 5 * 60) {
-             stats.holiday++;
+             stats.weeklyOff++;
           } 
           else if (workedMins >= 8 * 60) {
             stats.present++;
-            if (isSunday) stats.extra++;
+            if (isSunday) stats.woWorked++;
           } else if (workedMins >= 5 * 60) {
             stats.halfDay++;
-            if (isSunday) stats.extra++;
+            if (isSunday) stats.woWorked++;
           } else {
             // Less than 5 hours is ABSENT (unless Sunday, handled above)
             stats.absent++;
@@ -108,11 +118,11 @@ export function generateMonthlyReport(month) {
           // Bad data (in >= out) or single punch
           // Treat as absent or ignore? 
           // If there is an entry but 0 hours, it's also effectively absent < 5 hours
-          // BUT if it's Sunday and effectively 0 hours, it should probably be Holiday too?
+          // BUT if it's Sunday and effectively 0 hours, it should probably be Weekly Off too?
           // The request said "if ... came on sunday and ... worked less than 3 hrs"
-          // If they have punches but 0 duration, that is < 3 hours. So Holiday.
+          // If they have punches but 0 duration, that is < 3 hours. So Weekly Off.
           if (isSunday) {
-            stats.holiday++;
+            stats.weeklyOff++;
           } else {
             stats.absent++;
           }
@@ -120,7 +130,7 @@ export function generateMonthlyReport(month) {
       } else {
         // No attendance entry
         if (isSunday) {
-          stats.holiday++;
+          stats.weeklyOff++;
         } else {
           stats.absent++;
         }

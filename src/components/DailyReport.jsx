@@ -294,10 +294,14 @@ async function fetchDailyReport(date) {
     // Fetch logs for each employee for the selected date
     for (const emp of employees) {
         const logsRes = await apiFetch(`/api/logs/${emp.employeeId}?date=${date}`);
-        const logs = await logsRes.json();
+        const logsData = await logsRes.json();
 
-        // Calculate stats
-        const punches = logs.map(l => l.time).sort();
+        // New API returns an array of daily_attendance records (max 1 for single date)
+        // Structure: [{ date, punches: "10:00, 12:00", ... }]
+        const dailyRecord = logsData[0];
+        const punches = dailyRecord && dailyRecord.punches
+            ? dailyRecord.punches.split(", ").map(t => t.trim()).sort()
+            : [];
 
         let firstIn = null;
         let lastOut = null;
@@ -327,24 +331,27 @@ async function fetchDailyReport(date) {
                 workingMins = totalMins - breakMins;
 
                 // Determine status: <5hrs=Absent, 5-8hrs=Half Day, ≥8hrs=Full Day
-                // Exception: Sunday work < 5 hours is treated as Holiday (to prevent Absent status on Sundays)
+                // Exception: Sunday work < 5 hours is treated as Weekly Off (to prevent Absent status on Sundays)
                 const dateObj = new Date(date);
                 const isSunday = dateObj.getDay() === 0;
 
-                if (workingMins >= 8 * 60) {
+                if (isSunday) {
+                    if (workingMins >= 5 * 60) {
+                        status = "WO Worked";
+                    } else {
+                        status = "Weekly Off";
+                    }
+                } else if (workingMins >= 8 * 60) {
                     status = "Full Day";
                 } else if (workingMins >= 5 * 60) {
                     status = "Half Day";
-                } else if (isSunday) {
-                    // Sunday work < 5 hours is Holiday
-                    status = "Holiday";
                 }
                 // Else (< 5 hours and not Sunday) remains Absent
             }
         } else {
             const dateObj = new Date(date);
             if (dateObj.getDay() === 0) {
-                status = "Holiday";
+                status = "Weekly Off";
             }
         }
 
@@ -370,9 +377,9 @@ function getStatusBadge(status) {
             return "bg-emerald-500/15 text-emerald-400";
         case "Half Day":
             return "bg-amber-500/15 text-amber-400";
-        case "Extra":
-            return "bg-purple-500/15 text-purple-400"; // Changed to purple
-        case "Holiday":
+        case "WO Worked":
+            return "bg-purple-500/15 text-purple-400";
+        case "Weekly Off":
             return "bg-pink-500/15 text-pink-400";
         case "Absent":
             return "bg-red-500/15 text-red-400";
@@ -454,8 +461,9 @@ export default function DailyReport({ onGenerated }) {
         const fullDay = tableData.filter(r => r.status === "Full Day").length;
         const halfDay = tableData.filter(r => r.status === "Half Day").length;
         const absent = tableData.filter(r => r.status === "Absent").length;
-        const holiday = tableData.filter(r => r.status === "Holiday").length;
-        return { fullDay, halfDay, absent, holiday };
+        const weeklyOff = tableData.filter(r => r.status === "Weekly Off").length;
+        const woWorked = tableData.filter(r => r.status === "WO Worked").length;
+        return { fullDay, halfDay, absent, weeklyOff, woWorked };
     }, [tableData]);
 
     // Export Excel
@@ -661,39 +669,38 @@ export default function DailyReport({ onGenerated }) {
                 didDrawPage: (data) => {
                     const pageNum = doc.internal.getCurrentPageInfo().pageNumber;
                     const totalPages = doc.internal.getNumberOfPages();
+                    const pageHeight = doc.internal.pageSize.getHeight();
+                    const pageWidth = doc.internal.pageSize.getWidth();
 
                     doc.setFont("helvetica", "normal");
                     doc.setFontSize(7.5); // Matched Reports.jsx font size
                     doc.setTextColor(COLORS.muted);
 
+                    // Page Number
                     doc.text(
                         `Page ${pageNum} of ${totalPages}`,
-                        20,
+                        36,
                         pageHeight - 22
+                    );
+
+                    // Timestamp
+                    const now = new Date();
+                    const formattedDateTime = now.toLocaleString("en-US", {
+                        year: "numeric",
+                        month: "short",
+                        day: "numeric",
+                        hour: "2-digit",
+                        minute: "2-digit",
+                    });
+
+                    doc.text(
+                        `Generated on: ${formattedDateTime}`,
+                        pageWidth - 36,
+                        pageHeight - 22,
+                        { align: "right" }
                     );
                 },
             });
-
-            // FOOTER (TIMESTAMP) - Added to match Reports.jsx
-            const now = new Date();
-            const formattedDateTime = now.toLocaleString("en-US", {
-                year: "numeric",
-                month: "short",
-                day: "numeric",
-                hour: "2-digit",
-                minute: "2-digit",
-            });
-
-            doc.setFont("helvetica", "normal");
-            doc.setFontSize(7.5);
-            doc.setTextColor(COLORS.muted);
-
-            doc.text(
-                `Generated on: ${formattedDateTime}`,
-                pageWidth - 20,
-                pageHeight - 22,
-                { align: "right" }
-            );
 
             const filenameDate = selectedDate ? selectedDate.toLocaleDateString('en-GB').replace(/\//g, '-') : 'report';
             doc.save(`Daily_Attendance_${filenameDate}.pdf`);
@@ -796,12 +803,15 @@ export default function DailyReport({ onGenerated }) {
             <div className="flex items-center justify-between gap-2 bg-nero-800 border border-nero-700 rounded-md px-3 py-2" style={{ position: "relative", zIndex: 10 }}>
 
                 {/* KPIs (Moved to Left) */}
-                <div className="flex gap-4 text-sm text-nero-400">
+                <div className="h-full flex items-center gap-4 text-sm text-nero-400">
+                    <span className="text-nero-400 font-semibold text-lg">Employee Stats</span>
+                    <span className="text-nero-500">|</span>
                     <span className="text-emerald-400">Full Day: {stats.fullDay}</span>
                     <span className="text-amber-400">Half Day: {stats.halfDay}</span>
                     <span className="text-red-400">Absent: {stats.absent}</span>
 
-                    <span className="text-pink-400">Holiday: {stats.holiday}</span>
+                    <span className="text-pink-400">Weekly Off: {stats.weeklyOff}</span>
+                    <span className="text-purple-400">WO Worked: {stats.woWorked}</span>
                     <span className="text-nero-500">|</span>
                     <span>Total: {tableData.length}</span>
                 </div>

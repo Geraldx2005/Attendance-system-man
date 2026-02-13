@@ -25,7 +25,7 @@ export default function SearchBar({
   return (
     <div
       className="
-        w-80 h-8
+        w-full h-8
         flex items-center gap-2
         px-2
         bg-nero-700

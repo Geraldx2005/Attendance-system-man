@@ -59,7 +59,12 @@ export default function UploadHistoryDialog({ open, onClose }) {
         try {
             const result = await window.api.deleteUpload(uploadId);
             if (result?.ok) {
-                toast(`Deleted ${result.logsDeleted} attendance records`, "success");
+                const count = result.logsDeleted || 0;
+                if (count > 0) {
+                    toast(`Deleted data for ${count} records`, "success");
+                } else {
+                    toast("Upload history deleted successfully", "success");
+                }
                 // Animate out locally
                 setUploads(prev => prev.filter(u => u.id !== uploadId));
                 setConfirmDelete(null);
@@ -107,7 +112,7 @@ export default function UploadHistoryDialog({ open, onClose }) {
                             layout: { duration: 0.2, type: "spring", bounce: 0 },
                             opacity: { duration: 0.2 }
                         }}
-                        className="w-[550px] max-h-[80vh] bg-nero-900 border border-nero-700 rounded-2xl shadow-2xl flex flex-col"
+                        className="w-[600px] max-h-[80vh] bg-nero-900 border border-nero-700 rounded-2xl shadow-2xl flex flex-col"
                         onClick={(e) => e.stopPropagation()}
                     >
                         {/* Header */}
@@ -225,6 +230,12 @@ export default function UploadHistoryDialog({ open, onClose }) {
                                                                     <span>{formatDate(upload.uploadedAt)}</span>
                                                                     <span className="text-nero-600">•</span>
                                                                     <span className="text-emerald-400">{upload.recordsInserted} inserted</span>
+                                                                    {upload.recordsEmpty > 0 && (
+                                                                        <>
+                                                                            <span className="text-nero-600">•</span>
+                                                                            <span className="text-blue-400">{upload.recordsEmpty} empty</span>
+                                                                        </>
+                                                                    )}
                                                                     {upload.recordsSkipped > 0 && (
                                                                         <>
                                                                             <span className="text-nero-600">•</span>

@@ -206,12 +206,13 @@ async function fetchMonthlyReport(month, year) {
 
   // Map to expected format (employeeName instead of just name)
   return data.map(emp => ({
+    employeeId: emp.employeeId,
     employeeName: emp.employeeName,
     present: emp.present,
     halfDay: emp.halfDay,
     absent: emp.absent,
-    holiday: emp.holiday,
-    extra: emp.extra,
+    weeklyOff: emp.weeklyOff,
+    woWorked: emp.woWorked,
     totalPresent: emp.totalPresent,
   }));
 }
@@ -289,7 +290,7 @@ export default function Reports({ onGenerated }) {
         "Present Days": r.present,
         "Half Days": r.halfDay,
         "Absent Days": r.absent,
-        "Extra Days": r.extra,
+        "WO Worked Days": r.woWorked,
         "Total Present Days": r.totalPresent,
         "Attendance Percentage": Number(r.attendancePct) / 100, // real %
       }));
@@ -333,7 +334,7 @@ export default function Reports({ onGenerated }) {
         { wch: 14 },
         { wch: 12 },
         { wch: 14 },
-        { wch: 14 }, // Extra
+        { wch: 14 }, // WO Worked
         { wch: 18 },
         { wch: 22 },
       ];
@@ -419,10 +420,13 @@ export default function Reports({ onGenerated }) {
       doc.setTextColor(COLORS.text);
       doc.text("Monthly Attendance Report", 36, 28);
 
+      // Calculate total days
+      const daysInMonth = new Date(year, MONTHS.indexOf(m) + 1, 0).getDate();
+
       doc.setFont("helvetica", "normal");
       doc.setFontSize(9);
       doc.setTextColor(COLORS.muted);
-      doc.text(`Period: ${m} ${year}`, pageWidth - 36, 28, { align: "right" });
+      doc.text(`Period: ${m} ${year} (${daysInMonth} Days)`, pageWidth - 36, 28, { align: "right" });
 
       doc.setDrawColor(COLORS.border);
       doc.setLineWidth(0.8);
@@ -440,21 +444,23 @@ export default function Reports({ onGenerated }) {
           "Present",
           "Half Day",
           "Absent",
-          "Extra",
+          "Weekly Off",
           "Total Present",
           "Attendance %",
         ]],
 
-        body: tableData.map(r => [
-          r.employeeId,
-          r.employeeName,
-          r.present,
-          r.halfDay,
-          r.absent,
-          r.extra,
-          r.totalPresent,
-          `${r.attendancePct}%`,
-        ]),
+        body: [...tableData]
+          .sort((a, b) => String(a.employeeId).localeCompare(String(b.employeeId), undefined, { numeric: true }))
+          .map(r => [
+            r.employeeId,
+            r.employeeName,
+            r.present,
+            r.halfDay,
+            r.absent,
+            r.weeklyOff,
+            r.totalPresent,
+            `${r.attendancePct}%`,
+          ]),
 
         theme: "grid",
 
@@ -484,7 +490,7 @@ export default function Reports({ onGenerated }) {
           2: { halign: "center", cellWidth: 45 },
           3: { halign: "center", cellWidth: 52 },
           4: { halign: "center", cellWidth: 52 },
-          5: { halign: "center", cellWidth: 52 }, // Extra
+          5: { halign: "center", cellWidth: 52 }, // Weekly Off
           6: { halign: "center", cellWidth: 72 },
           7: { halign: "center", cellWidth: 90 },
         },
@@ -496,39 +502,38 @@ export default function Reports({ onGenerated }) {
         didDrawPage: (data) => {
           const pageNum = doc.internal.getCurrentPageInfo().pageNumber;
           const totalPages = doc.internal.getNumberOfPages();
+          const pageHeight = doc.internal.pageSize.getHeight();
+          const pageWidth = doc.internal.pageSize.getWidth();
 
           doc.setFont("helvetica", "normal");
           doc.setFontSize(7.5);
           doc.setTextColor(COLORS.muted);
 
+          // Page Number (Left)
           doc.text(
             `Page ${pageNum} of ${totalPages}`,
-            20,
+            36,
             pageHeight - 22
+          );
+
+          // Timestamp (Right) - Re-calculated here or reused if captured
+          const now = new Date();
+          const formattedDateTime = now.toLocaleString("en-US", {
+            year: "numeric",
+            month: "short",
+            day: "numeric",
+            hour: "2-digit",
+            minute: "2-digit",
+          });
+
+          doc.text(
+            `Generated on: ${formattedDateTime}`,
+            pageWidth - 36,
+            pageHeight - 22,
+            { align: "right" }
           );
         },
       });
-
-      // FOOTER (TIMESTAMP)
-      const now = new Date();
-      const formattedDateTime = now.toLocaleString("en-US", {
-        year: "numeric",
-        month: "short",
-        day: "numeric",
-        hour: "2-digit",
-        minute: "2-digit",
-      });
-
-      doc.setFont("helvetica", "normal");
-      doc.setFontSize(7.5);
-      doc.setTextColor(COLORS.muted);
-
-      doc.text(
-        `Generated on: ${formattedDateTime}`,
-        pageWidth - 20,
-        pageHeight - 22,
-        { align: "right" }
-      );
 
       doc.save(`Monthly Attendance Report ${m}-${year}.pdf`);
 
@@ -568,13 +573,13 @@ export default function Reports({ onGenerated }) {
         : "0.0";
 
       return {
-        employeeId: `EMP${String(idx + 1).padStart(3, "0")}`,
+        employeeId: r.employeeId,
         employeeName: r.employeeName,
         present: r.present,
         halfDay: r.halfDay,
         absent: r.absent,
-        holiday: r.holiday,
-        extra: r.extra,
+        weeklyOff: r.weeklyOff,
+        woWorked: r.woWorked,
         totalPresent: r.totalPresent,
         attendancePct: pct,
       };
@@ -611,16 +616,16 @@ export default function Reports({ onGenerated }) {
         ),
       },
       {
-        accessorKey: "holiday",
-        header: "Holiday",
+        accessorKey: "weeklyOff",
+        header: "Weekly Off",
         size: 90,
         Cell: ({ cell }) => (
           <span className="font-semibold text-pink-400">{cell.getValue()}</span>
         ),
       },
       {
-        accessorKey: "extra",
-        header: "Extra",
+        accessorKey: "woWorked",
+        header: "WO Worked",
         size: 90,
         Cell: ({ cell }) => (
           <span className="font-semibold text-purple-400">{cell.getValue()}</span>
@@ -657,13 +662,12 @@ export default function Reports({ onGenerated }) {
     []
   );
 
-  const avgAttendance =
-    tableData.length > 0
-      ? (
-        tableData.reduce((a, b) => a + Number(b.attendancePct), 0) /
-        tableData.length
-      ).toFixed(1)
-      : "0.0";
+
+
+  // Calculate total days in month
+  const totalDaysInMonth = selectedDate
+    ? new Date(selectedDate.getFullYear(), selectedDate.getMonth() + 1, 0).getDate()
+    : 0;
 
   return (
     <>
@@ -673,13 +677,12 @@ export default function Reports({ onGenerated }) {
       <div className="w-full h-full flex flex-col gap-3">
 
         {/* Top Bar */}
-        {/* Top Bar */}
         <div className="flex items-center justify-between gap-2 bg-nero-800 border border-nero-700 rounded-md px-3 py-2" style={{ position: "relative", zIndex: 10 }}>
 
           {/* KPI (Moved to Left) */}
           <div className="flex gap-4 text-sm text-nero-400">
             <span>Employees: {rows.length}</span>
-            <span>Avg Attendance: {avgAttendance}%</span>
+            {selectedDate && <span>Total Days: {totalDaysInMonth}</span>}
           </div>
 
           <div className="flex items-center gap-4">
@@ -775,7 +778,11 @@ export default function Reports({ onGenerated }) {
                 enableHiding
                 enableSorting
                 enableGlobalFilter
-                initialState={{ density: "compact" }}
+                initialState={{
+                  density: "compact",
+                  sorting: [{ id: "employeeId", desc: false }],
+                  columnVisibility: { woWorked: false },
+                }}
                 enableRowSelection={false}
                 enableColumnFilters={true}
                 enableColumnOrdering={false}

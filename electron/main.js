@@ -150,49 +150,51 @@ ipcMain.handle("api:get-logs", (_, { employeeId, date, from, to }) => {
   try {
     let rows;
 
+    // We now query 'daily_attendance'
     if (date) {
-      // Single-day punches
+      // Single-day
       rows = db
         .prepare(
           `
-        SELECT date, time, source
-        FROM attendance_logs
+        SELECT date, punches, upload_ids
+        FROM daily_attendance
         WHERE employee_id = ?
           AND date = ?
-        ORDER BY time
       `,
         )
         .all(employeeId, date);
-      logger.debug("Fetched logs for single date", { employeeId, date, count: rows.length });
+      logger.debug("Fetched daily_attendance for single date", { employeeId, date, count: rows.length });
     } else if (from && to) {
-      // Range punches (logs console)
+      // Range
       rows = db
         .prepare(
           `
-        SELECT date, time, source
-        FROM attendance_logs
+        SELECT date, punches, upload_ids
+        FROM daily_attendance
         WHERE employee_id = ?
           AND date BETWEEN ? AND ?
-        ORDER BY date, time
+        ORDER BY date
       `,
         )
         .all(employeeId, from, to);
-      logger.debug("Fetched logs for date range", { employeeId, from, to, count: rows.length });
+      logger.debug("Fetched daily_attendance for date range", { employeeId, from, to, count: rows.length });
     } else {
-      // All punches (fallback)
+      // All
       rows = db
         .prepare(
           `
-        SELECT date, time, source
-        FROM attendance_logs
+        SELECT date, punches, upload_ids
+        FROM daily_attendance
         WHERE employee_id = ?
-        ORDER BY date, time
+        ORDER BY date
       `,
         )
         .all(employeeId);
-      logger.debug("Fetched all logs", { employeeId, count: rows.length });
+      logger.debug("Fetched all daily_attendance", { employeeId, count: rows.length });
     }
 
+    // Transform for frontend consistency if needed, or send as is
+    // The frontend expects to parse "punches" string now.
     return rows;
   } catch (err) {
     logger.error("Failed to fetch logs", { employeeId, error: err.message });
@@ -220,24 +222,26 @@ ipcMain.handle("api:get-attendance", (_, { employeeId, month }) => {
       const from = `${month}-01`;
       const to = `${month}-31`;
 
-      // Fetch RAW punches only
+      // Fetch aggregated punches
       rows = db
         .prepare(
           `
-        SELECT date, time
-        FROM attendance_logs
+        SELECT date, punches
+        FROM daily_attendance
         WHERE employee_id = ?
           AND date BETWEEN ? AND ?
-        ORDER BY date, time
+        ORDER BY date
       `,
         )
         .all(employeeId, from, to);
 
-      // Group punches by date
+      // Map to quick lookup
       const byDate = {};
       for (const r of rows) {
-        if (!byDate[r.date]) byDate[r.date] = [];
-        byDate[r.date].push(r.time);
+        // Punches is a string "HH:MM:SS, HH:MM:SS"
+        if (r.punches) {
+            byDate[r.date] = r.punches.split(", ").map(t => t.trim()).filter(Boolean);
+        }
       }
 
       // Generate full month calendar
@@ -253,7 +257,7 @@ ipcMain.handle("api:get-attendance", (_, { employeeId, month }) => {
 
           return {
             date,
-            status: isSunday ? "Holiday" : (isPastDate(date) ? "Absent" : "Pending"),
+            status: isSunday ? "Weekly Off" : (isPastDate(date) ? "Absent" : "Pending"),
             firstIn: null,
             lastOut: null,
             workedMinutes: 0,
@@ -276,15 +280,24 @@ ipcMain.handle("api:get-attendance", (_, { employeeId, month }) => {
         if (inMin !== null && outMin !== null && outMin > inMin) {
           workedMinutes = outMin - inMin;
 
-          if (workedMinutes >= 8 * 60) {
-            status = "Full Day";
-          } else if (workedMinutes >= 5 * 60) {
-            status = "Half Day";
+          if (isSunday) {
+             if (workedMinutes >= 5 * 60) {
+                 status = "WO Worked"; // Worked enough on Sunday
+             } else {
+                 status = "Weekly Off"; // Worked but less than 5h on Sunday
+             }
+          } else {
+              // Weekday logic
+              if (workedMinutes >= 8 * 60) {
+                status = "Full Day";
+              } else if (workedMinutes >= 5 * 60) {
+                status = "Half Day";
+              }
+              // < 5 hours remains "Absent"
           }
-          // < 5 hours remains "Absent"
         } else {
            if (isSunday) { // If no work done on Sunday
-             status = "Holiday";
+             status = "Weekly Off";
            }
         }
 
@@ -306,23 +319,18 @@ ipcMain.handle("api:get-attendance", (_, { employeeId, month }) => {
     rows = db
       .prepare(
         `
-      SELECT date, time
-      FROM attendance_logs
+      SELECT date, punches
+      FROM daily_attendance
       WHERE employee_id = ?
-      ORDER BY date, time
+      ORDER BY date
     `,
       )
       .all(employeeId);
 
-    const byDate = {};
-    for (const r of rows) {
-      if (!byDate[r.date]) byDate[r.date] = [];
-      byDate[r.date].push(r.time);
-    }
-
-    const result = Object.entries(byDate).map(([date, punches]) => {
-      const firstIn = punches[0];
-      const lastOut = punches[punches.length - 1];
+    const result = rows.map((r) => {
+      const punches = r.punches ? r.punches.split(", ").map(t => t.trim()) : [];
+      const firstIn = punches[0] || null;
+      const lastOut = punches[punches.length - 1] || null;
 
       let workedMinutes = 0;
       let status = "Absent";
@@ -330,14 +338,14 @@ ipcMain.handle("api:get-attendance", (_, { employeeId, month }) => {
       const inMin = timeToMinutes(firstIn);
       const outMin = timeToMinutes(lastOut);
       
-      const dateObj = new Date(date);
+      const dateObj = new Date(r.date);
       const isSunday = dateObj.getDay() === 0;
 
       if (inMin !== null && outMin !== null && outMin > inMin) {
         workedMinutes = outMin - inMin;
 
         if (isSunday) {
-           status = "Extra";
+           status = "WO Worked";
         } else if (workedMinutes >= 8 * 60) {
             status = "Full Day";
         } else if (workedMinutes >= 5 * 60) {
@@ -345,12 +353,12 @@ ipcMain.handle("api:get-attendance", (_, { employeeId, month }) => {
         }
       } else {
          if (isSunday) {
-             status = "Holiday";
+             status = "Weekly Off";
          }
       }
 
       return {
-        date,
+        date: r.date,
         status,
         firstIn,
         lastOut,
@@ -533,6 +541,7 @@ ipcMain.handle("api:get-upload-history", () => {
         filename,
         records_inserted AS recordsInserted,
         records_skipped AS recordsSkipped,
+        records_empty AS recordsEmpty,
         uploaded_at AS uploadedAt
       FROM uploads
       ORDER BY uploaded_at DESC
@@ -549,36 +558,104 @@ ipcMain.handle("api:get-upload-history", () => {
 });
 
 // DELETE /api/delete-upload
-ipcMain.handle("api:delete-upload", (_, { uploadId }) => {
+ipcMain.handle("api:delete-upload", (_, props) => {
+  const uploadId = props?.uploadId;
+
   try {
+    logger.info("Delete upload request received", { uploadId });
+
     if (!uploadId || typeof uploadId !== "string") {
       throw new Error("Invalid upload ID");
     }
 
-    // First count how many logs will be deleted
-    const countResult = db
-      .prepare("SELECT COUNT(*) as count FROM attendance_logs WHERE upload_id = ?")
-      .get(uploadId);
-    const logsToDelete = countResult?.count || 0;
+    // 1. Check if upload exists and delete metadata
+    const deleteUpload = db.prepare("DELETE FROM uploads WHERE id = ?");
+    
+    // 2. Identify affected days BEFORE deleting logs (so we know what to re-aggregate)
+    const getAffectedDays = db.prepare(`
+        SELECT DISTINCT employee_id, date 
+        FROM attendance_logs 
+        WHERE upload_id = ?
+    `);
+    
+    // 3. Delete from attendance_logs
+    const deleteLogs = db.prepare("DELETE FROM attendance_logs WHERE upload_id = ?");
 
-    // Delete the upload (cascade will delete related attendance_logs)
-    const deleteResult = db
-      .prepare("DELETE FROM uploads WHERE id = ?")
-      .run(uploadId);
+    // 4. Re-aggregation statements
+    const getLogsForDay = db.prepare(`
+        SELECT time, upload_id 
+        FROM attendance_logs 
+        WHERE employee_id = ? AND date = ? 
+        ORDER BY time ASC
+    `);
+    
+    const upsertDaily = db.prepare(`
+       INSERT INTO daily_attendance (employee_id, date, punches, upload_ids, updated_at)
+       VALUES (?, ?, ?, ?, datetime('now','localtime'))
+       ON CONFLICT(employee_id, date) DO UPDATE SET
+         punches = excluded.punches,
+         upload_ids = excluded.upload_ids,
+         updated_at = excluded.updated_at
+    `);
+    
+    const deleteDaily = db.prepare("DELETE FROM daily_attendance WHERE employee_id = ? AND date = ?");
+    
+    let logsDeletedCount = 0;
+    let legacyUpdatedCount = 0;
+    
+    db.transaction(() => {
+        // A. Get affected Scope
+        const affectedRows = getAffectedDays.all(uploadId);
+        
+        // B. Delete Upload Record
+        const res = deleteUpload.run(uploadId);
+        if (res.changes === 0) throw new Error("Upload not found");
+        
+        // C. Delete Raw Logs
+        const logRes = deleteLogs.run(uploadId);
+        logsDeletedCount = logRes.changes;
+        
+        // D. Re-aggregate affected days
+        for (const row of affectedRows) {
+            const { employee_id, date } = row;
+            
+            // Fetch remaining logs
+            const logs = getLogsForDay.all(employee_id, date);
+            
+            if (logs.length > 0) {
+                // Determine new state
+                const punches = logs.map(l => l.time).join(", ");
+                const uniqueUploads = new Set(logs.map(l => l.upload_id).filter(Boolean));
+                const uploadIdsStr = [...uniqueUploads].join(",");
+                
+                upsertDaily.run(employee_id, date, punches, uploadIdsStr);
+            } else {
+                // No logs left for this day -> Delete daily record
+                deleteDaily.run(employee_id, date);
+            }
+        }
+        
+        // Fallback for Legacy Data (Soft Delete)
+        // If no attendance_logs were found (migrated data?), we still need to clear the upload_id reference
+        // from daily_attendance to be consistent, even if strict data deletion isn't possible.
+        if (logsDeletedCount === 0) {
+            const affectedLegacy = db.prepare("SELECT id, upload_ids FROM daily_attendance WHERE upload_ids LIKE ?").all(`%${uploadId}%`);
+            const updateLegacy = db.prepare("UPDATE daily_attendance SET upload_ids = ? WHERE id = ?");
+            for (const row of affectedLegacy) {
+                 const ids = row.upload_ids.split(",");
+                 const newIds = ids.filter(id => id !== uploadId);
+                 updateLegacy.run(newIds.join(","), row.id);
+                 legacyUpdatedCount++;
+            }
+        }
 
-    if (deleteResult.changes === 0) {
-      throw new Error("Upload not found");
-    }
+    })();
 
-    // Also manually delete attendance logs (in case CASCADE doesn't trigger)
-    db.prepare("DELETE FROM attendance_logs WHERE upload_id = ?").run(uploadId);
-
-    logger.audit("Upload deleted", { uploadId, logsDeleted: logsToDelete });
-
-    // Notify UI to refresh
+    logger.audit("Upload deleted successfully", { uploadId, logsDeleted: logsDeletedCount, legacyUpdated: legacyUpdatedCount });
+    
     notifyAttendanceInvalidation({});
+    return { ok: true, logsDeleted: logsDeletedCount + legacyUpdatedCount };
 
-    return { ok: true, logsDeleted: logsToDelete };
   } catch (err) {
     logger.error("Failed to delete upload", { uploadId, error: err.message });
     throw new Error(err.message || "Failed to delete upload");

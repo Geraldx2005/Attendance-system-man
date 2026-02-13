@@ -86,6 +86,7 @@ export function initDB() {
       filename TEXT NOT NULL,
       records_inserted INTEGER DEFAULT 0,
       records_skipped INTEGER DEFAULT 0,
+      records_empty INTEGER DEFAULT 0,
       uploaded_at TEXT DEFAULT (datetime('now','localtime'))
     );
   `);
@@ -102,11 +103,87 @@ export function initDB() {
     logger.warn("Failed to add upload_id column", { error: err.message });
   }
 
-  // Index for upload_id lookups
+  // Add records_empty column to uploads if not exists (migration)
+  try {
+    const columns = db.pragma("table_info(uploads)");
+    const hasEmpty = columns.some(col => col.name === "records_empty");
+    if (!hasEmpty) {
+      db.exec(`ALTER TABLE uploads ADD COLUMN records_empty INTEGER DEFAULT 0`);
+      logger.info("Added records_empty column to uploads");
+    }
+  } catch (err) {
+    logger.warn("Failed to add records_empty column", { error: err.message });
+  }
+
+  // INDEX for upload_id lookups
   db.exec(`
     CREATE INDEX IF NOT EXISTS idx_logs_upload_id
       ON attendance_logs(upload_id);
   `);
+
+  // DAILY ATTENDANCE (Aggregated punches)
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS daily_attendance (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      employee_id TEXT NOT NULL,
+      date TEXT NOT NULL,
+      punches TEXT, -- Comma-separated string of times
+      upload_ids TEXT, -- Comma-separated list of upload IDs
+      created_at TEXT DEFAULT (datetime('now','localtime')),
+      updated_at TEXT DEFAULT (datetime('now','localtime')),
+      UNIQUE(employee_id, date),
+      FOREIGN KEY (employee_id) REFERENCES employees(id) ON DELETE CASCADE
+    );
+  `);
+
+  // MIGRATION: attendance_logs -> daily_attendance
+  try {
+    const rowCount = db.prepare("SELECT count(*) as count FROM daily_attendance").get().count;
+    if (rowCount === 0) {
+      const oldLogsCount = db.prepare("SELECT count(*) as count FROM attendance_logs").get().count;
+      if (oldLogsCount > 0) {
+        logger.info("Migrating attendance_logs to daily_attendance...");
+        const allLogs = db.prepare("SELECT * FROM attendance_logs ORDER BY employee_id, date, time").all();
+        
+        // Group by emp+date
+        const grouped = {};
+        for (const log of allLogs) {
+          const key = `${log.employee_id}|${log.date}`;
+          if (!grouped[key]) {
+            grouped[key] = { 
+              employee_id: log.employee_id, 
+              date: log.date, 
+              punches: [], 
+              upload_ids: new Set() 
+            };
+          }
+          grouped[key].punches.push(log.time);
+          if (log.upload_id) grouped[key].upload_ids.add(log.upload_id);
+        }
+
+        const insertDaily = db.prepare(`
+          INSERT INTO daily_attendance (employee_id, date, punches, upload_ids)
+          VALUES (?, ?, ?, ?)
+        `);
+
+        const insertMany = db.transaction((items) => {
+          for (const item of items) {
+            insertDaily.run(
+              item.employee_id, 
+              item.date, 
+              item.punches.join(", "), 
+              [...item.upload_ids].join(",")
+            );
+          }
+        });
+
+        insertMany(Object.values(grouped));
+        logger.info("Migration complete", { records: Object.keys(grouped).length });
+      }
+    }
+  } catch (err) {
+    logger.error("Migration failed", { error: err.message });
+  }
 
   // Create backups directory
   const backupDir = path.join(USER_DATA_PATH, "backups");

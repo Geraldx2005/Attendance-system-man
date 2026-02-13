@@ -143,7 +143,7 @@ function App() {
   };
 
   return (
-    <main className="w-full h-screen flex bg-nero-900 text-nero-300 select-none">
+    <main className="w-full h-screen flex bg-nero-900 text-nero-300 select-none overflow-hidden">
       {/* Lazy-loaded dialogs wrapped in Suspense */}
       <Suspense fallback={null}>
         <SettingsDialog
@@ -262,7 +262,7 @@ function App() {
               />
             </div>
 
-            <div className="flex-1 overflow-auto minimal-scrollbar p-2 px-3 border-r-2 border-nero-600">
+            <div className="flex-1 overflow-y-scroll overflow-x-hidden minimal-scrollbar p-2 px-3 border-r-2 border-nero-600 relative">
               {loadingEmployees && employees.length === 0 ? (
                 <div className="h-full flex flex-col items-center justify-center text-nero-450 gap-2">
                   <div className="w-8 h-8 border-4 border-nero-600 border-t-emerald-500 rounded-full animate-spin" />
@@ -274,21 +274,18 @@ function App() {
                   <div>No employee found</div>
                 </div>
               ) : (
-                <AnimatePresence mode="popLayout">
-                  {filteredEmployees.map((emp, index) => {
+                <AnimatePresence>
+                  {filteredEmployees.map((emp) => {
                     const isActive =
                       selectedEmployee?.employeeId === emp.employeeId;
 
                     return (
                       <motion.div
                         key={emp.employeeId}
-                        initial={{ opacity: 0, y: 8 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        exit={{ opacity: 0, scale: 0.95 }}
-                        transition={{
-                          duration: 0.2,
-                          delay: Math.min(index * 0.03, 0.3)
-                        }}
+                        initial={{ opacity: 0 }}
+                        animate={{ opacity: 1 }}
+                        exit={{ opacity: 0 }}
+                        transition={{ duration: 0.15 }}
                         onClick={() => setSelectedEmployee(emp)}
                         className={`px-3 py-2 mb-1 rounded-md cursor-pointer transition-colors border-2
               ${isActive
@@ -296,7 +293,7 @@ function App() {
                             : "bg-nero-800 border-transparent hover:bg-[#2b2b2b]"}
             `}
                       >
-                        <div className="text-sm font-medium">{emp.name}</div>
+                        <div className="text-sm font-medium truncate" title={emp.name}>{emp.name}</div>
                         <div className="text-xs text-nero-400">
                           {formatEmpId(emp.employeeId)}
                         </div>
@@ -446,6 +443,10 @@ function App() {
 
                         <span className="text-red-300">
                           Absent: {attendanceSummary?.absent ?? 0}
+                        </span>
+
+                        <span className="text-pink-300">
+                          Weekly Off: {attendanceSummary?.weeklyOff ?? 0}
                         </span>
 
                         <span className="text-nero-300 border-l border-nero-500 pl-3">

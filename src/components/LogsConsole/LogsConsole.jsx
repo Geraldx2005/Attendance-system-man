@@ -113,14 +113,31 @@ export default function LogsConsole({ employee, onDayStats }) {
         throw new Error("Invalid data format received");
       }
 
+      // Flatten aggregated punches into individual log entries
+      const flattenedLogs = [];
+      for (const dayRecord of data) {
+        if (dayRecord.punches) {
+          const times = dayRecord.punches.split(", ").map(t => t.trim());
+          for (const t of times) {
+            if (t) {
+              flattenedLogs.push({
+                date: dayRecord.date,
+                time: t,
+                // Derived fields can be added here if needed
+              });
+            }
+          }
+        }
+      }
+
       // Sort chronologically before deriving types
-      data.sort((a, b) => {
+      flattenedLogs.sort((a, b) => {
         if (a.date !== b.date) return a.date.localeCompare(b.date);
         return a.time.localeCompare(b.time);
       });
 
       // Per-day IN/OUT + stable ids
-      const formatted = deriveTypes(data, selectedDate).map((l, i) => ({
+      const formatted = deriveTypes(flattenedLogs, selectedDate).map((l, i) => ({
         ...l,
         id: `${l.date}-${l.time}-${i}`,
       }));

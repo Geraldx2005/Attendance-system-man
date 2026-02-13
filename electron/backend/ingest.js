@@ -65,7 +65,7 @@ export function ingestSingleFile(filePath, onProgress, originalFilename = null) 
   const uploadId = crypto.randomUUID();
   
   const result = {
-    inserted: 0,
+    inserted: 0, 
     skipped: 0,
     total: 0,
     uploadId
@@ -95,10 +95,12 @@ export function ingestSingleFile(filePath, onProgress, originalFilename = null) 
       VALUES (?, ?)
     `);
 
+    // Insert into attendance_logs (Raw Data)
+    // We use INSERT OR IGNORE so if a punch exists (from another upload), we keep the original.
+    // This implies "First upload wins" ownership of a punch.
     const insertLog = db.prepare(`
-      INSERT OR IGNORE INTO attendance_logs
-      (employee_id, date, time, source, upload_id)
-      VALUES (?, ?, ?, 'Manual Upload', ?)
+      INSERT OR IGNORE INTO attendance_logs (employee_id, date, time, upload_id)
+      VALUES (?, ?, ?, ?)
     `);
 
     const insertUpload = db.prepare(`
@@ -107,85 +109,156 @@ export function ingestSingleFile(filePath, onProgress, originalFilename = null) 
     `);
 
     const updateUpload = db.prepare(`
-      UPDATE uploads SET records_inserted = ?, records_skipped = ? WHERE id = ?
+      UPDATE uploads SET records_inserted = ?, records_skipped = ?, records_empty = ? WHERE id = ?
     `);
     
-    // Process rows with progress
-    const batchSize = Math.max(1, Math.floor(rows.length / 20)); // Report progress ~20 times
-    
+    // Group punches by Employee + Date to minimize aggregations
+    // We still insert logs individually, but we trigger daily aggregation once per group
+    const affectedDays = new Set(); // Strings of "EmpID|Date"
+    let emptyRecordsCount = 0;
+
+    // Transaction for bulk inserts
     db.transaction(() => {
-      // Create upload record first
-      insertUpload.run(uploadId, filename);
+        // Create upload record
+        insertUpload.run(uploadId, filename);
 
-      for (let i = 0; i < rows.length; i++) {
-        const r = rows[i];
-        
-        // Get raw values (handle different column name cases)
-        const rawUserId = r.UserID || r.userId || r.user_id || r.EmployeeID || r.employee_id;
-        const rawDate = r.Date || r.date || r.DATE;
-        const rawTime = r.Time || r.time || r.TIME;
-        
-        // Validate employee ID
-        const employeeIdValidation = validateEmployeeId(rawUserId);
-        if (!employeeIdValidation.valid) {
-          logger.warn("Skipping row with invalid employee ID", { row: i + 1, employeeId: rawUserId, error: employeeIdValidation.error });
-          result.skipped++;
-          continue;
-        }
-        const validatedEmployeeId = employeeIdValidation.value;
-        
-        // Normalize date and time for regional format support
-        const normalizedDate = normalizeDate(rawDate);
-        const normalizedTime = normalizeTime(rawTime);
-        
-        // Check for required fields and valid normalization
-        if (!normalizedDate || !normalizedTime) {
-          logger.warn("Skipping row with invalid date/time", { row: i + 1, date: rawDate, time: rawTime });
-          result.skipped++;
-          continue;
-        }
+        for (let i = 0; i < rows.length; i++) {
+            const r = rows[i];
+            
+            // Get raw values (handle different column name cases)
+            const rawUserId = r['Employee Code'] || r.EmployeeCode || r.UserID || r.userId || r.user_id || r.EmployeeID || r.employee_id;
+            const rawDate = r.AttendanceDate || r.Attendance_Date || r.Date || r.date || r.DATE;
+            const rawPunchRecords = r.PunchRecords || r.Punch_Records || r['Punch Records'] || r.Time || r.time || r.TIME;
+            
+            // Validate employee ID
+            const employeeIdValidation = validateEmployeeId(rawUserId);
+            if (!employeeIdValidation.valid) {
+              result.skipped++;
+              continue;
+            }
+            const validatedEmployeeId = employeeIdValidation.value;
+            
+            // Normalize date
+            const normalizedDate = normalizeDate(rawDate);
+            if (!normalizedDate) {
+               result.skipped++;
+               continue;
+            }
 
-        // Get and validate employee name
-        const rawEmployeeName = r.EmployeeName || r.Name || r.name || r.employee_name || `Employee ${validatedEmployeeId}`;
-        const employeeNameValidation = validateEmployeeName(rawEmployeeName);
-        const employeeName = employeeNameValidation.valid ? employeeNameValidation.value : `Employee ${validatedEmployeeId}`;
+            // Ensure employee exists
+            try {
+                insertEmployee.run(validatedEmployeeId, `Employee ${validatedEmployeeId}`);
+            } catch (e) {}
 
-        try {
-          insertEmployee.run(validatedEmployeeId, employeeName);
-          const info = insertLog.run(validatedEmployeeId, normalizedDate, normalizedTime, uploadId);
-          
-          if (info.changes > 0) {
-            result.inserted++;
-          } else {
-            // Duplicate entry (already exists)
-            result.skipped++;
-          }
-        } catch (err) {
-          logger.warn("Insert error for row", { row: i + 1, error: err.message });
-          result.skipped++;
+            // Parse PunchRecords
+            let timeEntries = [];
+            if (rawPunchRecords) {
+               const splits = rawPunchRecords.toString().split(/[,;\n|\s]+/);
+               for (const t of splits) {
+                 const trimmed = t.trim();
+                 if (trimmed) {
+                   const normTime = normalizeTime(trimmed);
+                   if (normTime) {
+                     timeEntries.push(normTime);
+                   }
+                 }
+               }
+            }
+            
+            if (timeEntries.length > 0) {
+                // Insert logs
+                let insertedForRecord = 0;
+                for (const time of timeEntries) {
+                    const info = insertLog.run(validatedEmployeeId, normalizedDate, time, uploadId);
+                    if (info.changes > 0) insertedForRecord++;
+                }
+
+                if (insertedForRecord > 0) {
+                    result.inserted++;
+                    // Mark for aggregation
+                    affectedDays.add(`${validatedEmployeeId}|${normalizedDate}`);
+                } else {
+                    result.skipped++; // All punches already existed
+                    // Still mark for aggregation in case we need to update upload_ids (though we are relying on logs now)
+                    // Actually, if we didn't insert, the daily_daily attendance might not strictly need update 
+                    // unless we want to ensure consistency. Let's mark it to be safe.
+                    affectedDays.add(`${validatedEmployeeId}|${normalizedDate}`);
+                }
+
+            } else {
+                 // Empty record
+                 emptyRecordsCount++;
+            }
+            
+            // Progress
+            if ((i + 1) % 500 === 0) {
+                 onProgress?.({
+                    progress: 10 + Math.round(((i + 1) / rows.length) * 40),
+                    message: `Ingesting records...`,
+                    current: i + 1,
+                    total: rows.length
+                  });
+            }
+        }
+    })();
+
+    // Aggregation Phase
+    const groups = Array.from(affectedDays);
+    const batchSize = Math.max(1, Math.floor(groups.length / 20));
+
+    const upsertDaily = db.prepare(`
+       INSERT INTO daily_attendance (employee_id, date, punches, upload_ids, updated_at)
+       VALUES (?, ?, ?, ?, datetime('now','localtime'))
+       ON CONFLICT(employee_id, date) DO UPDATE SET
+         punches = excluded.punches,
+         upload_ids = excluded.upload_ids,
+         updated_at = excluded.updated_at
+    `);
+
+    // We need to fetch ALL logs for these days to rebuild the Daily Attendance string
+    // This is the "Truth" reconstruction
+    const getLogsForDay = db.prepare(`
+        SELECT time, upload_id 
+        FROM attendance_logs 
+        WHERE employee_id = ? AND date = ? 
+        ORDER BY time ASC
+    `);
+
+    db.transaction(() => {
+        for (let i = 0; i < groups.length; i++) {
+            const [empId, date] = groups[i].split("|");
+            
+            const logs = getLogsForDay.all(empId, date);
+            
+            if (logs.length > 0) {
+                const punches = logs.map(l => l.time).join(", ");
+                // Collect unique upload IDs
+                const uniqueUploads = new Set(logs.map(l => l.upload_id).filter(Boolean));
+                const uploadIdsStr = [...uniqueUploads].join(",");
+                
+                upsertDaily.run(empId, date, punches, uploadIdsStr);
+            }
+
+            // Progress
+            if ((i + 1) % batchSize === 0) {
+                 onProgress?.({
+                    progress: 50 + Math.round(((i + 1) / groups.length) * 40),
+                    message: `Aggregating daily summaries...`,
+                    current: i + 1,
+                    total: groups.length
+                  });
+            }
         }
         
-        // Report progress periodically
-        if ((i + 1) % batchSize === 0 || i === rows.length - 1) {
-          const progressPercent = Math.round(((i + 1) / rows.length) * 100);
-          onProgress?.({
-            progress: progressPercent,
-            message: `Inserting records...`,
-            current: i + 1,
-            total: rows.length
-          });
-        }
-      }
-
-      // Update upload record with final counts
-      updateUpload.run(result.inserted, result.skipped, uploadId);
+        // Final update to uploads table
+        updateUpload.run(result.inserted, result.skipped, emptyRecordsCount, uploadId);
     })();
     
-    logger.info("File processing complete", { file: filename, uploadId, inserted: result.inserted, skipped: result.skipped, total: result.total });
+    logger.info("File processing complete", { file: filename, uploadId, inserted: result.inserted, skipped: result.skipped });
     
     onProgress?.({
       progress: 100,
-      message: `Complete: ${result.inserted} inserted`,
+      message: `Complete`,
       current: rows.length,
       total: rows.length
     });

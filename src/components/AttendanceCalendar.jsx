@@ -34,8 +34,9 @@ function toCalendarEvent(d) {
     backgroundColor:
       d.status === "Full Day" ? "#2e7d32"
         : d.status === "Half Day" ? "#b7791f"
-          : d.status === "Extra" ? "#5b2d8b"
-            : d.status === "Holiday" ? "#8a2c5b"
+          : d.status === "WO Worked"
+            ? ((d.workedMinutes && d.workedMinutes >= 8 * 60) ? "#2e7d32" : "#b7791f")
+            : d.status === "Weekly Off" ? "#8a2c5b"
               : d.status === "Absent" ? "#8b1d1d"
                 : "transparent",
     borderColor: "transparent",
@@ -98,13 +99,23 @@ function buildDayTimelineEvents(date, logs) {
 
 /* ─── Summary calculator ──────────────────────────────────────────────────── */
 function calcSummary(data) {
-  let fullDay = 0, halfDay = 0, absent = 0;
+  let fullDay = 0, halfDay = 0, absent = 0, weeklyOff = 0, woWorked = 0;
   data.forEach((d) => {
     if (d.status === "Full Day") fullDay++;
     else if (d.status === "Half Day") halfDay++;
     else if (d.status === "Absent") absent++;
+    else if (d.status === "Weekly Off") weeklyOff++;
+    else if (d.status === "WO Worked") {
+      woWorked++;
+      // Distribute into Full/Half based on work duration for summary consistency
+      if (d.workedMinutes && d.workedMinutes >= 8 * 60) {
+        fullDay++;
+      } else {
+        halfDay++;
+      }
+    }
   });
-  return { fullDay, halfDay, absent, totalPresent: fullDay + halfDay * 0.5 };
+  return { fullDay, halfDay, absent, weeklyOff, woWorked, totalPresent: fullDay + halfDay * 0.5 };
 }
 
 /* ─── Component ───────────────────────────────────────────────────────────── */
@@ -159,8 +170,20 @@ export default function AttendanceCalendar({
     if (view === "timeGridDay" && date) {
       apiFetch(`/api/logs/${emp.employeeId}?date=${date}`)
         .then((res) => res.json())
-        .then((logs) => {
+        .then((data) => {
           if (reqId !== requestRef.current) return;
+
+          // Parse aggregated punches
+          const dayRecord = data[0];
+          let logs = [];
+          if (dayRecord && dayRecord.punches) {
+            logs = dayRecord.punches
+              .split(", ")
+              .map(t => t.trim())
+              .filter(Boolean)
+              .map(time => ({ date, time }));
+          }
+
           setEvents(buildDayTimelineEvents(date, logs));
           onDayStats?.(calcDayStats(logs));
           setLoading(false);
@@ -271,8 +294,15 @@ export default function AttendanceCalendar({
         allDaySlot={false}
         displayEventTime={false}
         slotMinTime="06:00:00"
-        slotMaxTime="22:00:00"
+        slotMaxTime="24:00:00"
         height="100%"
+
+        dateClick={(arg) => {
+          calendarRef.current?.getApi()?.changeView("timeGridDay", arg.dateStr);
+        }}
+        eventClick={(info) => {
+          calendarRef.current?.getApi()?.changeView("timeGridDay", info.event.startStr);
+        }}
 
         events={
           currentView === "dayGridMonth" && !monthReadyRef.current

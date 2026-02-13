@@ -17,17 +17,42 @@ export function normalizeDate(dateStr) {
   if (parts.length !== 3) return null;
 
   // Check if it's already in YYYY-MM-DD format
-  if (parts[0].length === 4) {
-    return normalized; // Already in correct format
+  if (parts[0].length === 4 && !isNaN(parts[1])) {
+    return normalized; // Already in correct format like 2023-12-31
   }
 
-  // Convert DD-MM-YYYY to YYYY-MM-DD
-  const [day, month, year] = parts;
+  // Handle DD-MMM-YY or DD-MMM-YYYY or DD-MM-YYYY
+  let [day, month, year] = parts;
   
-  // Validate
+  // Validate presence
   if (!day || !month || !year) return null;
   
-  return `${year}-${month.padStart(2, "0")}-${day.padStart(2, "0")}`;
+  // Handle Year: if 2 digits, assume 20xx
+  if (year.length === 2) {
+    year = "20" + year;
+  }
+  
+  // Handle Month: Convert Name to Number
+  const monthMap = {
+    jan: "01", feb: "02", mar: "03", apr: "04", may: "05", jun: "06",
+    jul: "07", aug: "08", sep: "09", oct: "10", nov: "11", dec: "12"
+  };
+  
+  const lowerMonth = month.toLowerCase();
+  if (monthMap[lowerMonth]) {
+    month = monthMap[lowerMonth];
+  } else {
+      // Ensure numeric and padded
+      month = month.padStart(2, "0");
+  }
+
+  // Ensure day is padded
+  day = day.padStart(2, "0");
+  
+  // Final check for numeric values
+  if (isNaN(year) || isNaN(month) || isNaN(day)) return null;
+  
+  return `${year}-${month}-${day}`;
 }
 
 /**

@@ -148,9 +148,10 @@ export default function UploadDialog({ open, onClose }) {
         });
 
         if (result?.ok) {
-          const msg = result.inserted > 0
-            ? `Uploaded ${result.inserted} records successfully`
-            : "File processed (no new records)";
+          let msg = `Completed: ${result.inserted} inserted`;
+          if (result.skipped > 0) msg += `, ${result.skipped} skipped`;
+          if (result.empty > 0) msg += `, ${result.empty} empty`;
+
           toast(msg, "success");
           if (fileInputRef.current) {
             fileInputRef.current.value = "";
