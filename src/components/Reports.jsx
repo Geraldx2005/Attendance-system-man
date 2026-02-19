@@ -6,10 +6,11 @@ import CalendarTodayIcon from "@mui/icons-material/CalendarToday";
 import DatePicker from "react-datepicker";
 import "react-datepicker/dist/react-datepicker.css";
 import SettingsDialog from "./SettingsDialog";
-import * as XLSX from "xlsx";
+import XLSX from "xlsx-js-style";
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 import { apiFetch } from "../utils/api";
+import GridOnIcon from "@mui/icons-material/GridOn";
 
 // React-Datepicker (Month Picker)
 const monthPickerStyles = `
@@ -547,6 +548,245 @@ export default function Reports({ onGenerated }) {
     }
   };
 
+  const exportGridExcel = async (isDetailed = false) => {
+    try {
+      setIsExporting(true);
+      setExportType(isDetailed ? "grid-detailed" : "grid-simple");
+
+      await new Promise(resolve => setTimeout(resolve, 100));
+
+      const { month, year } = getMonthYear();
+      const monthIndex = MONTHS.indexOf(month) + 1;
+      const monthKey = `${year}-${String(monthIndex).padStart(2, "0")}`;
+
+      // Fetch grid data
+      const res = await apiFetch(`/api/monthly-grid-report?month=${monthKey}`);
+      const gridData = await res.json();
+
+      if (!gridData || !gridData.employees || gridData.employees.length === 0) {
+        setError("No data available for grid export.");
+        return;
+      }
+
+      const { employees, daysInMonth } = gridData;
+
+      // Build headers: Employee ID | Employee Name | 1 | 2 | ... | N
+      const headers = ["Employee ID", "Employee Name"];
+      for (let d = 1; d <= daysInMonth; d++) {
+        headers.push(String(d));
+      }
+
+      // Helper: convert HH:MM:SS to 12h format (e.g. "10:39 AM")
+      const to12h = (time) => {
+        if (!time) return "";
+        const [hStr, mStr] = time.split(":");
+        let h = parseInt(hStr, 10);
+        const m = mStr.padStart(2, "0");
+        const ampm = h >= 12 ? "PM" : "AM";
+        if (h === 0) h = 12;
+        else if (h > 12) h -= 12;
+        return `${h}:${m} ${ampm}`;
+      };
+
+      // Helper: minutes to "Xh Ym"
+      const fmtDuration = (mins) => {
+        if (!mins || mins <= 0) return "";
+        const h = Math.floor(mins / 60);
+        const m = mins % 60;
+        return `${h}h ${m}m`;
+      };
+
+      // Build rows
+      const wsData = [];
+      // Title Row
+      wsData.push([`${month} ${year}`]);
+      wsData.push(headers);
+
+      // Sort employees by ID
+      const sorted = [...employees].sort((a, b) =>
+        String(a.employeeId).localeCompare(String(b.employeeId), undefined, { numeric: true })
+      );
+
+      for (const emp of sorted) {
+        const row = [emp.employeeId, emp.employeeName];
+        for (let d = 1; d <= daysInMonth; d++) {
+          const dateStr = `${monthKey}-${String(d).padStart(2, "0")}`;
+          const detail = emp.dailyStatus[dateStr];
+          if (!detail) {
+            row.push("");
+            continue;
+          }
+
+          // Build cell content based on mode
+          let cellText = "";
+
+          if (isDetailed) {
+            // Detailed mode: Multi-line with full status names
+            const STATUS_MAP = {
+              P: "Present",
+              HD: "Half Day",
+              A: "Absent",
+              WO: "Weekly Off",
+              WW: "WO Worked"
+            };
+
+            const fullStatus = STATUS_MAP[detail.status] || detail.status;
+            const dur = fmtDuration(detail.workedMinutes);
+
+            let line1 = fullStatus;
+            if (dur) line1 += ` | ${dur}`;
+
+            cellText = line1;
+            if (detail.firstIn && detail.lastOut) {
+              cellText += `\r\n${to12h(detail.firstIn)} - ${to12h(detail.lastOut)}`;
+            }
+          } else {
+            // Simple mode: Status code only
+            cellText = detail.status;
+          }
+
+          row.push(cellText);
+        }
+        wsData.push(row);
+      }
+
+      const ws = XLSX.utils.aoa_to_sheet(wsData);
+
+      // Status color map (ARGB format for xlsx)
+      const STATUS_COLORS = {
+        P: { bg: "C6EFCE", fg: "006100" },  // Green
+        HD: { bg: "FFEB9C", fg: "9C6500" },  // Amber
+        A: { bg: "FFC7CE", fg: "9C0006" },  // Red
+        WO: { bg: "E4CCFF", fg: "7030A0" },  // Pink/Purple
+        WW: { bg: "D9E2F3", fg: "002060" },  // Blue
+      };
+
+      // Style title row
+      const titleAddr = XLSX.utils.encode_cell({ r: 0, c: 0 });
+      if (ws[titleAddr]) {
+        ws[titleAddr].s = {
+          font: { bold: true, sz: 14 },
+          // Left aligned with indent (spacing)
+          alignment: { horizontal: "left", vertical: "center", indent: 2 }
+        };
+      }
+
+      // Style header row (now at index 1)
+      for (let c = 0; c < headers.length; c++) {
+        const addr = XLSX.utils.encode_cell({ r: 1, c });
+        if (ws[addr]) {
+          ws[addr].s = {
+            font: { bold: true, sz: 10 },
+            alignment: { horizontal: "center", vertical: "center" },
+            border: {
+              top: { style: "thin" },
+              bottom: { style: "thin" },
+              left: { style: "thin" },
+              right: { style: "thin" },
+            },
+            fill: { fgColor: { rgb: "D9D9D9" } },
+          };
+        }
+      }
+
+      // Style data cells (start at index 2)
+      const range = XLSX.utils.decode_range(ws["!ref"]);
+      for (let R = 2; R <= range.e.r; R++) {
+        for (let C = 0; C <= range.e.c; C++) {
+          const addr = XLSX.utils.encode_cell({ r: R, c: C });
+          const cell = ws[addr];
+          if (!cell) continue;
+
+          const baseBorder = {
+            top: { style: "thin" },
+            bottom: { style: "thin" },
+            left: { style: "thin" },
+            right: { style: "thin" },
+          };
+
+          if (C < 2) {
+            // ID and Name columns
+            cell.s = {
+              alignment: { horizontal: C === 0 ? "center" : "left", vertical: "center" },
+              border: baseBorder,
+              font: { sz: 10 },
+            };
+          } else {
+            // Date status cells - match status for color & alignment
+            const cellVal = String(cell.v || "");
+            let statusCode = "";
+
+            // Robust detection for simple "Present", "Half Day", etc.
+            if (cellVal.startsWith("Present") || cellVal === "P") statusCode = "P";
+            else if (cellVal.startsWith("Half Day") || cellVal === "HD") statusCode = "HD";
+            else if (cellVal.startsWith("Absent") || cellVal === "A") statusCode = "A";
+            else if (cellVal.startsWith("WO Worked") || cellVal === "WW") statusCode = "WW";
+            else if (cellVal.startsWith("Weekly Off") || cellVal === "WO") statusCode = "WO";
+
+            const colors = STATUS_COLORS[statusCode];
+
+            // Alignment logic: Always center as requested
+            cell.s = {
+              alignment: { horizontal: "center", vertical: "center", wrapText: true },
+              border: baseBorder,
+              font: {
+                bold: true,
+                sz: 8,
+                color: colors ? { rgb: colors.fg } : undefined,
+              },
+              fill: colors ? { fgColor: { rgb: colors.bg } } : undefined,
+            };
+          }
+        }
+      }
+
+      // Column widths
+      const cols = [
+        { wch: 14 },  // Employee ID
+        { wch: 22 },  // Employee Name
+      ];
+      for (let d = 0; d < daysInMonth; d++) {
+        // Detailed: Reduced width (was 18), Compact: 6
+        cols.push({ wch: isDetailed ? 16 : 6 });
+      }
+      ws["!cols"] = cols;
+
+      // Row heights (Title: 30, Header: 22, Data: ...)
+      const rowHeights = [{ hpt: 30 }, { hpt: 22 }];
+      for (let r = 2; r <= range.e.r; r++) {
+        // Detailed: Reduced height (was 42), Simple: 20
+        rowHeights.push({ hpt: isDetailed ? 36 : 20 });
+      }
+      ws["!rows"] = rowHeights;
+
+      // Freeze first 2 columns + title + header (2 rows)
+      ws["!freeze"] = { xSplit: 2, ySplit: 2 };
+
+      // Merge title row
+      ws["!merges"] = [{ s: { r: 0, c: 0 }, e: { r: 0, c: headers.length - 1 } }];
+
+      // Autofilter (start from header row at index 1)
+      ws["!autofilter"] = { ref: XLSX.utils.encode_range({ s: { r: 1, c: 0 }, e: { r: range.e.r, c: range.e.c } }) };
+
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, "Attendance Grid");
+
+      const fileName = isDetailed
+        ? `Attendance Detailed Grid ${month}-${year}.xlsx`
+        : `Attendance Grid ${month}-${year}.xlsx`;
+
+      XLSX.writeFile(wb, fileName);
+
+      setError(null);
+    } catch (err) {
+      console.error("Grid Excel export failed", err);
+      setError("Failed to export Grid Excel. Please try again.");
+    } finally {
+      setIsExporting(false);
+      setExportType("");
+    }
+  };
+
   function getAttendanceBadge(pct) {
     const v = Number(pct);
 
@@ -898,6 +1138,46 @@ export default function Reports({ onGenerated }) {
                         </>
                       ) : (
                         "Export PDF"
+                      )}
+                    </button>
+                    <button
+                      onClick={() => exportGridExcel(false)}
+                      disabled={isExporting}
+                      className="px-3 py-1.5 rounded-md bg-nero-700 hover:bg-nero-600 text-sm disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+                    >
+                      {isExporting && exportType === "grid-simple" ? (
+                        <>
+                          <svg className="animate-spin h-3.5 w-3.5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                          </svg>
+                          Exporting...
+                        </>
+                      ) : (
+                        <>
+                          <GridOnIcon style={{ fontSize: 16 }} />
+                          Export Grid
+                        </>
+                      )}
+                    </button>
+                    <button
+                      onClick={() => exportGridExcel(true)}
+                      disabled={isExporting}
+                      className="px-3 py-1.5 rounded-md bg-nero-700 hover:bg-nero-600 text-sm disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+                    >
+                      {isExporting && exportType === "grid-detailed" ? (
+                        <>
+                          <svg className="animate-spin h-3.5 w-3.5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                          </svg>
+                          Exporting...
+                        </>
+                      ) : (
+                        <>
+                          <GridOnIcon style={{ fontSize: 16 }} />
+                          Export Detailed
+                        </>
                       )}
                     </button>
                   </div>

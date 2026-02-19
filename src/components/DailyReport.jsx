@@ -363,6 +363,7 @@ async function fetchDailyReport(date) {
             workingMins,
             breakMins,
             punchCount: punches.length,
+            allPunches: punches, // Store all punches for export
             status,
         });
     }
@@ -480,7 +481,18 @@ export default function DailyReport({ onGenerated }) {
                 "First In": r.firstIn ? to12Hour(r.firstIn) : "--",
                 "Last Out": r.lastOut ? to12Hour(r.lastOut) : "--",
                 "Duration": formatMinutes(r.workingMins),
-                "Punches": r.punchCount,
+                "Punch Count": r.punchCount,
+                "All Punches": r.allPunches && r.allPunches.length > 0
+                    ? (() => {
+                        const pairs = [];
+                        for (let i = 0; i < r.allPunches.length; i += 2) {
+                            const inTime = to12Hour(r.allPunches[i]);
+                            const outTime = r.allPunches[i + 1] ? to12Hour(r.allPunches[i + 1]) : "--";
+                            pairs.push(`${inTime} - ${outTime}`);
+                        }
+                        return pairs.join(", ");
+                    })()
+                    : "--",
                 "Status": r.status
             }));
 
@@ -517,7 +529,8 @@ export default function DailyReport({ onGenerated }) {
                 { wch: 12 }, // In
                 { wch: 12 }, // Out
                 { wch: 12 }, // Duration
-                { wch: 10 }, // Punches
+                { wch: 12 }, // Punch Count
+                { wch: 35 }, // All Punches
                 { wch: 14 }, // Status
             ];
 

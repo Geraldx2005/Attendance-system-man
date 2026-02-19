@@ -45,7 +45,7 @@ contextBridge.exposeInMainWorld("ipc", {
 
   // File upload with progress
   uploadFile: (fileData) => ipcRenderer.invoke("upload-file", fileData),
-  
+
   onUploadProgress: (cb) => {
     const id = nextId++;
     uploadProgressListeners.set(id, cb);
@@ -62,6 +62,7 @@ contextBridge.exposeInMainWorld("api", {
   getLogs: (employeeId, params) => ipcRenderer.invoke("api:get-logs", { employeeId, ...params }),
   getAttendance: (employeeId, month) => ipcRenderer.invoke("api:get-attendance", { employeeId, month }),
   getMonthlyReport: (month) => ipcRenderer.invoke("api:get-monthly-report", { month }),
+  getMonthlyGridReport: (month) => ipcRenderer.invoke("api:get-monthly-grid-report", { month }),
   updateEmployeeName: (employeeId, name) => ipcRenderer.invoke("api:update-employee", { employeeId, name }),
   getUploadHistory: () => ipcRenderer.invoke("api:get-upload-history"),
   deleteUpload: (uploadId) => ipcRenderer.invoke("api:delete-upload", { uploadId }),
