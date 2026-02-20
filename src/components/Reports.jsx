@@ -11,6 +11,7 @@ import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 import { apiFetch } from "../utils/api";
 import GridOnIcon from "@mui/icons-material/GridOn";
+import { unzipSync, zipSync, strFromU8, strToU8 } from "fflate";
 
 // React-Datepicker (Month Picker)
 const monthPickerStyles = `
@@ -173,6 +174,62 @@ const MONTHS = [
   "January", "February", "March", "April", "May", "June",
   "July", "August", "September", "October", "November", "December",
 ];
+
+function downloadWorkbookWithFrozenTopRows(wb, fileName, frozenRows = 2) {
+  try {
+    const workbookBytes = new Uint8Array(
+      XLSX.write(wb, { bookType: "xlsx", type: "array" })
+    );
+
+    const zipEntries = unzipSync(workbookBytes);
+    const sheetXmlPath = "xl/worksheets/sheet1.xml";
+    const sheetXmlEntry = zipEntries[sheetXmlPath];
+    if (!sheetXmlEntry) {
+      XLSX.writeFile(wb, fileName);
+      return;
+    }
+
+    const topLeftCell = `A${frozenRows + 1}`;
+    const paneXml = `<pane ySplit="${frozenRows}" topLeftCell="${topLeftCell}" activePane="bottomLeft" state="frozen"/>`;
+    let sheetXml = strFromU8(sheetXmlEntry);
+
+    if (/<sheetView\b[^>]*>[\s\S]*<\/sheetView>/.test(sheetXml)) {
+      sheetXml = sheetXml.replace(
+        /<sheetView\b([^>]*)>([\s\S]*?)<\/sheetView>/,
+        (_, attrs, inner) => {
+          const innerWithoutPane = inner.replace(/<pane\b[^>]*\/>/g, "");
+          return `<sheetView${attrs}>${paneXml}${innerWithoutPane}</sheetView>`;
+        }
+      );
+    } else {
+      sheetXml = sheetXml.replace(
+        /<sheetView\b([^>]*)\/>/,
+        `<sheetView$1>${paneXml}</sheetView>`
+      );
+    }
+
+    zipEntries[sheetXmlPath] = strToU8(sheetXml);
+    const patchedWorkbook = zipSync(zipEntries);
+
+    const blob = new Blob(
+      [patchedWorkbook],
+      {
+        type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      }
+    );
+    const downloadUrl = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = downloadUrl;
+    link.download = fileName;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(downloadUrl);
+  } catch (error) {
+    console.warn("Freeze-pane patch failed, falling back to default XLSX writer.", error);
+    XLSX.writeFile(wb, fileName);
+  }
+}
 
 // Dark MUI Theme
 const darkMuiTheme = createTheme({
@@ -759,8 +816,8 @@ export default function Reports({ onGenerated }) {
       }
       ws["!rows"] = rowHeights;
 
-      // Freeze first 2 columns + title + header (2 rows)
-      ws["!freeze"] = { xSplit: 2, ySplit: 2 };
+      // Kept for compatibility; actual freeze pane is enforced in XML patch below.
+      ws["!freeze"] = { xSplit: 0, ySplit: 2 };
 
       // Merge title row
       ws["!merges"] = [{ s: { r: 0, c: 0 }, e: { r: 0, c: headers.length - 1 } }];
@@ -775,7 +832,7 @@ export default function Reports({ onGenerated }) {
         ? `Attendance Detailed Grid ${month}-${year}.xlsx`
         : `Attendance Grid ${month}-${year}.xlsx`;
 
-      XLSX.writeFile(wb, fileName);
+      downloadWorkbookWithFrozenTopRows(wb, fileName, 2);
 
       setError(null);
     } catch (err) {
