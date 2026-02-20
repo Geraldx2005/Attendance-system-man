@@ -97,15 +97,17 @@ export default function UploadDialog({ open, onClose }) {
 
     const validTypes = [
       "text/csv",
+      "text/plain",
+      "application/octet-stream",
       "application/vnd.ms-excel",
       "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
     ];
 
-    const validExtensions = [".csv", ".xls", ".xlsx"];
+    const validExtensions = [".dat", ".csv", ".xls", ".xlsx"];
     const fileExtension = file.name.toLowerCase().slice(file.name.lastIndexOf("."));
 
     if (!validTypes.includes(file.type) && !validExtensions.includes(fileExtension)) {
-      toast("Please select a CSV or Excel file", "error");
+      toast("Please select an attlog .dat file (or CSV/Excel)", "error");
       return;
     }
 
@@ -261,7 +263,7 @@ export default function UploadDialog({ open, onClose }) {
                     <input
                       ref={fileInputRef}
                       type="file"
-                      accept=".csv,.xls,.xlsx"
+                      accept=".dat,.csv,.xls,.xlsx"
                       onChange={handleFileInput}
                       disabled={uploading}
                       className="hidden"
@@ -291,7 +293,7 @@ export default function UploadDialog({ open, onClose }) {
                             Drop your file here or click to browse
                           </div>
                           <div className="text-xs text-nero-500">
-                            Supports CSV, XLS, and XLSX files
+                            Supports attlog .dat files (preferred) plus CSV/XLS/XLSX
                           </div>
                         </motion.div>
                       ) : (

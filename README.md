@@ -8,9 +8,9 @@ A comprehensive desktop application for managing employee attendance, built with
     - Calendar view showing daily attendance status (Present, Absent, Half Day, Holiday).
     - Summary statistics for the selected month.
 - **Manual Data Upload**: 
-    - Robust file uploader supporting `.csv`, `.xls`, and `.xlsx` formats.
+    - Optimized for biometric `attlog` `.dat` files (also accepts legacy `.csv`, `.xls`, and `.xlsx`).
     - Real-time progress tracking for file reading, parsing, and database insertion.
-    - Automatic conversion of Excel files to CSV.
+    - Automatic conversion of Excel files to CSV; `.dat` files are ingested directly with second-level precision.
 - **Employee Management**: 
     - Searchable employee list by ID or Name.
     - Detailed employee profiles.
@@ -85,13 +85,15 @@ The output will be available in the `release` directory.
 ### Importing Attendance Data
 
 1.  Click the **Upload (+) button** in the sidebar.
-2.  Select your attendance file (`.csv`, `.xls`, or `.xlsx`).
+2.  Select your attendance file (`attlog .dat` from the device, or `.csv`/`.xls`/`.xlsx` if exported).
 3.  The system will process the file and insert records into the database.
-4.  **Required Columns**:
-    - `UserID` (or `EmployeeID`)
-    - `Date` (YYYY-MM-DD or similar standard formats)
-    - `Time` (HH:mm:ss)
-    - `EmployeeName` (Optional, will auto-create employees if missing)
+4.  **Required Columns / Fields**:
+    - For `.dat` attlog exports: the file is line-based (`UserID <tab> YYYY-MM-DD HH:mm:ss ...`). No header is required.
+    - For CSV/Excel uploads: 
+        - `UserID` (or `EmployeeID`)
+        - `Date` (YYYY-MM-DD or similar standard formats)
+        - `Time` (HH:mm or HH:mm:ss)
+        - `EmployeeName` (Optional, will auto-create employees if missing)
 
 ## Project Structure
 

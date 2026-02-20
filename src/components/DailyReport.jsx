@@ -267,20 +267,28 @@ function formatMinutes(mins) {
     return `${h}h ${m}m`;
 }
 
-// Helper: Convert HH:MM to 12-hour format
+// Helper: Convert HH:MM[:SS] to 12-hour format (UI hides seconds)
 function to12Hour(time) {
     if (!time) return "--";
-    const [h, m] = time.split(":").map(Number);
+    const parts = time.split(":").map(Number);
+    const h = parts[0];
+    const m = parts[1];
+    if (Number.isNaN(h) || Number.isNaN(m)) return "--";
+
     const period = h >= 12 ? "PM" : "AM";
     const hour = h % 12 || 12;
     return `${hour}:${String(m).padStart(2, "0")} ${period}`;
 }
 
-// Helper: Convert HH:MM to minutes
+// Helper: Convert HH:MM[:SS] to minutes
 function timeToMinutes(time) {
     if (!time) return null;
-    const [h, m] = time.split(":").map(Number);
-    return h * 60 + m;
+    const parts = time.split(":").map(Number);
+    const h = parts[0];
+    const m = parts[1];
+    const s = Number.isFinite(parts[2]) ? parts[2] : 0;
+    if (Number.isNaN(h) || Number.isNaN(m)) return null;
+    return h * 60 + m + s / 60;
 }
 
 // Fetch Daily Report

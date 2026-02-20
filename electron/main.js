@@ -464,16 +464,18 @@ ipcMain.handle("upload-file", async (_, { name, buffer, type }) => {
     const randomName = crypto.randomBytes(8).toString("hex");
     const ext = extValidation.extension;
 
-    // Only process CSV files directly, for Excel files we need conversion
+    // Process DAT/CSV directly; Excel files need conversion
     let targetPath;
-    if (ext === ".csv") {
-      targetPath = path.join(csvPath, `attendance_upload_${randomName}.csv`);
+    if (ext === ".csv" || ext === ".dat") {
+      const finalExt = ext === ".dat" ? ".dat" : ".csv";
+      const extLabel = finalExt.replace(".", "").toUpperCase();
+      targetPath = path.join(csvPath, `attendance_upload_${randomName}${finalExt}`);
 
       // Write the buffer to file
       const uint8Array = new Uint8Array(buffer);
       fs.writeFileSync(targetPath, uint8Array);
 
-      logger.info("CSV file uploaded", { filename: sanitizedName, path: targetPath, size: bufferSize });
+      logger.info(`${extLabel} file uploaded`, { filename: sanitizedName, path: targetPath, size: bufferSize });
       sendUploadProgress({ phase: "reading", progress: 40, message: "File saved..." });
     } else {
       // For Excel files, we need xlsx package - save as temp then convert

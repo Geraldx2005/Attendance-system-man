@@ -2,14 +2,18 @@ import { getDB } from "./db.js";
 import logger from "../utils/logger.js";
 
 /**
- * Convert HH:MM:SS to minutes since midnight
+ * Convert HH:MM[:SS] to minutes since midnight
  */
 function timeToMinutes(time) {
   if (!time) return null;
-  const parts = time.split(":");
-  const h = parseInt(parts[0], 10);
-  const m = parseInt(parts[1], 10);
-  return h * 60 + m;
+  const parts = time.split(":").map((p) => parseInt(p, 10));
+  const h = parts[0];
+  const m = parts[1];
+  const s = Number.isFinite(parts[2]) ? parts[2] : 0;
+
+  if (Number.isNaN(h) || Number.isNaN(m)) return null;
+
+  return h * 60 + m + s / 60;
 }
 
 /**

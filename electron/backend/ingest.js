@@ -4,8 +4,10 @@ import crypto from "crypto";
 import { parse } from "csv-parse/sync";
 import db from "./db.js";
 import { normalizeDate, normalizeTime } from "../dateTimeUtils.js";
-import { validateEmployeeId, validateEmployeeName } from "../utils/validator.js";
+import { validateEmployeeId } from "../utils/validator.js";
 import logger from "../utils/logger.js";
+
+const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
 
 /* Remove BOM from string */
 function removeBOM(str) {
@@ -25,9 +27,8 @@ function readCSV(csvFilePath) {
   try {
     // Check file size - reject files larger than 10MB
     const stats = fs.statSync(csvFilePath);
-    const maxSize = 10 * 1024 * 1024; // 10MB
-    if (stats.size > maxSize) {
-      logger.error("CSV file too large", { path: csvFilePath, size: stats.size, maxSize });
+    if (stats.size > MAX_FILE_SIZE) {
+      logger.error("CSV file too large", { path: csvFilePath, size: stats.size, maxSize: MAX_FILE_SIZE });
       throw new Error(`File size exceeds 10MB limit`);
     }
 
@@ -56,6 +57,90 @@ function readCSV(csvFilePath) {
   }
 }
 
+/* DAT (attlog) Reader */
+function readDatAttlog(datFilePath) {
+  if (!fs.existsSync(datFilePath)) {
+    logger.error("DAT file not found", { path: datFilePath });
+    return [];
+  }
+
+  try {
+    const stats = fs.statSync(datFilePath);
+    if (stats.size > MAX_FILE_SIZE) {
+      logger.error("DAT file too large", { path: datFilePath, size: stats.size, maxSize: MAX_FILE_SIZE });
+      throw new Error(`File size exceeds 10MB limit`);
+    }
+
+    const content = fs.readFileSync(datFilePath, "utf8");
+    const lines = content.split(/\r?\n/);
+    const rows = [];
+    let skippedLines = 0;
+
+    for (const rawLine of lines) {
+      const line = rawLine.trim();
+      if (!line) continue;
+
+      // Typical attlog format: UserID<TAB>YYYY-MM-DD HH:mm:ss<TAB>...
+      const match = line.match(/^(\S+)\s+(\d{4}-\d{2}-\d{2})[ T](\d{1,2}:\d{2}(?::\d{2})?)/);
+      if (match) {
+        rows.push({
+          UserID: match[1],
+          Date: match[2],
+          Time: match[3],
+        });
+        continue;
+      }
+
+      // Fallback parsing for slightly different spacing/tokenization
+      const tokens = line.split(/\s+/).filter(Boolean);
+      if (tokens.length >= 3) {
+        const userId = tokens[0];
+        let datePart = null;
+        let timePart = null;
+
+        // Combined datetime token (e.g., "2026-02-20 13:58:40" as a single token)
+        const combined = tokens.slice(1).join(" ");
+        const combinedMatch = combined.match(/(\d{4}-\d{2}-\d{2})[ T](\d{1,2}:\d{2}(?::\d{2})?)/);
+        if (combinedMatch) {
+          datePart = combinedMatch[1];
+          timePart = combinedMatch[2];
+        } else if (/^\d{4}-\d{2}-\d{2}$/.test(tokens[1]) && tokens[2]) {
+          datePart = tokens[1];
+          timePart = tokens[2];
+        }
+
+        if (datePart && timePart) {
+          rows.push({
+            UserID: userId,
+            Date: datePart,
+            Time: timePart,
+          });
+          continue;
+        }
+      }
+
+      skippedLines++;
+    }
+
+    if (skippedLines > 0) {
+      logger.warn("Some DAT lines could not be parsed", { path: datFilePath, skippedLines });
+    }
+
+    logger.info("DAT file read successfully", { path: datFilePath, records: rows.length });
+    return rows;
+  } catch (err) {
+    logger.error("DAT read error", { path: datFilePath, error: err.message });
+    throw err;
+  }
+}
+
+/* Generic reader that selects parser by extension */
+function readAttendanceFile(filePath) {
+  const ext = path.extname(filePath).toLowerCase();
+  if (ext === ".dat") return readDatAttlog(filePath);
+  return readCSV(filePath);
+}
+
 /* ================= SINGLE FILE INGEST WITH PROGRESS ================= */
 export function ingestSingleFile(filePath, onProgress, originalFilename = null) {
   const filename = originalFilename || path.basename(filePath);
@@ -75,16 +160,16 @@ export function ingestSingleFile(filePath, onProgress, originalFilename = null) 
     // Report: Reading file
     onProgress?.({ progress: 0, message: "Reading file...", current: 0, total: 0 });
     
-    const rows = readCSV(filePath);
+    const rows = readAttendanceFile(filePath);
     
     if (!rows.length) {
-      logger.warn("No rows found in CSV", { file: filename });
+      logger.warn("No rows found in data file", { file: filename });
       onProgress?.({ progress: 100, message: "No records found", current: 0, total: 0 });
       return result;
     }
     
     result.total = rows.length;
-    logger.info("Processing CSV rows", { file: filename, rows: rows.length, uploadId });
+    logger.info("Processing attendance rows", { file: filename, rows: rows.length, uploadId });
     
     // Report: Parsing complete
     onProgress?.({ progress: 10, message: `Found ${rows.length} records`, current: 0, total: rows.length });

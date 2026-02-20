@@ -62,19 +62,29 @@ export function normalizeDate(dateStr) {
 export function normalizeTime(timeStr) {
   if (!timeStr) return null;
 
-  // Replace . with : for consistent format
-  const normalized = timeStr.replace(/\./g, ":");
-  const parts = normalized.split(":");
+  // Normalize delimiters and trim whitespace
+  const normalized = timeStr.toString().trim().replace(/\./g, ":");
 
-  if (parts.length < 2) return null;
+  // Support HH:MM and HH:MM:SS
+  const match = normalized.match(/^(\d{1,2}):(\d{2})(?::(\d{2}))?$/);
+  if (!match) return null;
 
-  const [h, m] = parts.map(Number);
+  const h = Number(match[1]);
+  const m = Number(match[2]);
+  const s = match[3] !== undefined ? Number(match[3]) : null;
 
-  // Validate
-  if (isNaN(h) || isNaN(m)) return null;
+  // Validate ranges
+  if (Number.isNaN(h) || Number.isNaN(m)) return null;
   if (h < 0 || h > 23 || m < 0 || m > 59) return null;
+  if (s !== null && (Number.isNaN(s) || s < 0 || s > 59)) return null;
 
-  return `${h.toString().padStart(2, "0")}:${m.toString().padStart(2, "0")}`;
+  const hh = h.toString().padStart(2, "0");
+  const mm = m.toString().padStart(2, "0");
+
+  if (s === null) return `${hh}:${mm}`;
+
+  const ss = s.toString().padStart(2, "0");
+  return `${hh}:${mm}:${ss}`;
 }
 
 /**
@@ -84,8 +94,12 @@ export function timeToMinutes(time) {
   const normalized = normalizeTime(time);
   if (!normalized) return null;
 
-  const [h, m] = normalized.split(":").map(Number);
-  return h * 60 + m;
+  const parts = normalized.split(":").map(Number);
+  const h = parts[0];
+  const m = parts[1];
+  const s = parts[2] ?? 0;
+
+  return h * 60 + m + s / 60;
 }
 
 /**
@@ -95,10 +109,14 @@ export function to12Hour(time24) {
   const normalized = normalizeTime(time24);
   if (!normalized) return "";
 
-  const [h, m] = normalized.split(":").map(Number);
+  const parts = normalized.split(":").map(Number);
+  const h = parts[0];
+  const m = parts[1];
+  const s = parts[2];
   
   const period = h >= 12 ? "PM" : "AM";
   const hour12 = h % 12 || 12;
 
-  return `${hour12}:${m.toString().padStart(2, "0")} ${period}`;
+  const seconds = Number.isFinite(s) ? `:${s.toString().padStart(2, "0")}` : "";
+  return `${hour12}:${m.toString().padStart(2, "0")}${seconds} ${period}`;
 }

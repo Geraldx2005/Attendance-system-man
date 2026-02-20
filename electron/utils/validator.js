@@ -115,7 +115,7 @@ export function validateFileSize(sizeBytes, maxMB = 10) {
  * @param {string} filename - Filename to validate
  * @param {string[]} allowedExtensions - Array of allowed extensions (e.g., ['.csv', '.xlsx'])
  */
-export function validateFileExtension(filename, allowedExtensions = ['.csv', '.xls', '.xlsx']) {
+export function validateFileExtension(filename, allowedExtensions = ['.dat', '.csv', '.xls', '.xlsx']) {
   if (!filename || typeof filename !== 'string') {
     return { valid: false, error: 'Invalid filename' };
   }
