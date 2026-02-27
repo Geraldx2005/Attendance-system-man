@@ -129,7 +129,8 @@ ipcMain.handle("api:get-employees", () => {
         `
       SELECT 
         id AS employeeId,
-        name
+        name,
+        in_time AS inTime
       FROM employees
       ORDER BY 
         CAST(REPLACE(REPLACE(REPLACE(id, 'EMP', ''), 'FT', ''), '-', '') AS INTEGER),
@@ -391,7 +392,7 @@ ipcMain.handle("api:get-attendance", (_, { employeeId, month }) => {
 });
 
 // POST /api/employees/:employeeId (update name)
-ipcMain.handle("api:update-employee", (_, { employeeId, name }) => {
+ipcMain.handle("api:update-employee", (_, { employeeId, name, inTime }) => {
   try {
     // Validate employee name using centralized validator
     const validation = validateEmployeeName(name);
@@ -402,25 +403,28 @@ ipcMain.handle("api:update-employee", (_, { employeeId, name }) => {
 
     const validatedName = validation.value;
 
+    // Validate inTime format (HH:MM)
+    const validatedInTime = /^\d{2}:\d{2}$/.test(inTime) ? inTime : "10:00";
+
     db.prepare(
       `
     UPDATE employees
-    SET name = ?
+    SET name = ?, in_time = ?
     WHERE id = ?
   `,
-    ).run(validatedName, employeeId);
+    ).run(validatedName, validatedInTime, employeeId);
 
-    // Audit log for employee name changes
-    logger.audit("Employee name updated", { employeeId, newName: validatedName });
+    // Audit log for employee updates
+    logger.audit("Employee updated", { employeeId, newName: validatedName, inTime: validatedInTime });
 
     // Notify UI to refresh lists
     notifyAttendanceInvalidation({ employeeId });
 
     return { ok: true };
   } catch (err) {
-    logger.error("Failed to update employee name", { employeeId, error: err.message });
+    logger.error("Failed to update employee", { employeeId, error: err.message });
     // Return sanitized error message
-    throw new Error(err.message || "Failed to update employee name");
+    throw new Error(err.message || "Failed to update employee");
   }
 });
 

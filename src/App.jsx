@@ -160,12 +160,12 @@ function App() {
           open={mapOpen}
           employee={selectedEmployee}
           onClose={() => setMapOpen(false)}
-          onSaved={(newName) => {
+          onSaved={({ name: newName, inTime: newInTime }) => {
             fetchEmployees();
 
-            // Update selected employee name instantly
+            // Update selected employee instantly
             setSelectedEmployee((prev) =>
-              prev ? { ...prev, name: newName } : prev
+              prev ? { ...prev, name: newName, inTime: newInTime } : prev
             );
           }}
         />
@@ -407,7 +407,8 @@ function App() {
                   </div>
 
                   <div className="text-xs text-nero-500">
-                    Employee ID • {formatEmpId(selectedEmployee.employeeId)}
+                    {formatEmpId(selectedEmployee.employeeId)}
+                    {selectedEmployee.inTime && ` • In Time: ${to12Hour(selectedEmployee.inTime)}`}
                   </div>
                 </div>
 
@@ -520,7 +521,8 @@ function App() {
                   </div>
 
                   <div className="text-xs text-nero-500">
-                    Employee ID • {formatEmpId(selectedEmployee.employeeId)}
+                    {formatEmpId(selectedEmployee.employeeId)}
+                    {selectedEmployee.inTime && ` • In Time: ${to12Hour(selectedEmployee.inTime)}`}
                   </div>
                 </div>
 

@@ -30,7 +30,7 @@ export function initDB() {
 
   // Set restrictive file permissions (owner read/write only)
   try {
-    if (process.platform !== 'win32') {
+    if (process.platform !== "win32") {
       // On Unix-like systems, set permissions to 600 (rw-------)
       fs.chmodSync(dbPath, 0o600);
       logger.info("Set restrictive database file permissions");
@@ -70,7 +70,7 @@ export function initDB() {
     );
   `);
 
-  // INDEXES 
+  // INDEXES
   db.exec(`
     CREATE INDEX IF NOT EXISTS idx_logs_employee_date
       ON attendance_logs(employee_id, date);
@@ -94,7 +94,7 @@ export function initDB() {
   // Add upload_id column to attendance_logs if not exists (migration)
   try {
     const columns = db.pragma("table_info(attendance_logs)");
-    const hasUploadId = columns.some(col => col.name === "upload_id");
+    const hasUploadId = columns.some((col) => col.name === "upload_id");
     if (!hasUploadId) {
       db.exec(`ALTER TABLE attendance_logs ADD COLUMN upload_id TEXT REFERENCES uploads(id) ON DELETE CASCADE`);
       logger.info("Added upload_id column to attendance_logs");
@@ -106,13 +106,24 @@ export function initDB() {
   // Add records_empty column to uploads if not exists (migration)
   try {
     const columns = db.pragma("table_info(uploads)");
-    const hasEmpty = columns.some(col => col.name === "records_empty");
+    const hasEmpty = columns.some((col) => col.name === "records_empty");
     if (!hasEmpty) {
       db.exec(`ALTER TABLE uploads ADD COLUMN records_empty INTEGER DEFAULT 0`);
       logger.info("Added records_empty column to uploads");
     }
   } catch (err) {
     logger.warn("Failed to add records_empty column", { error: err.message });
+  }
+
+  // Migration: add in_time column to employees (default 10:00 AM)
+  try {
+    const empCols = db.pragma("table_info(employees)");
+    if (!empCols.some((c) => c.name === "in_time")) {
+      db.exec(`ALTER TABLE employees ADD COLUMN in_time TEXT NOT NULL DEFAULT '10:00'`);
+      logger.info("Added in_time column to employees");
+    }
+  } catch (err) {
+    logger.warn("Failed to add in_time column", { error: err.message });
   }
 
   // INDEX for upload_id lookups
@@ -144,17 +155,17 @@ export function initDB() {
       if (oldLogsCount > 0) {
         logger.info("Migrating attendance_logs to daily_attendance...");
         const allLogs = db.prepare("SELECT * FROM attendance_logs ORDER BY employee_id, date, time").all();
-        
+
         // Group by emp+date
         const grouped = {};
         for (const log of allLogs) {
           const key = `${log.employee_id}|${log.date}`;
           if (!grouped[key]) {
-            grouped[key] = { 
-              employee_id: log.employee_id, 
-              date: log.date, 
-              punches: [], 
-              upload_ids: new Set() 
+            grouped[key] = {
+              employee_id: log.employee_id,
+              date: log.date,
+              punches: [],
+              upload_ids: new Set(),
             };
           }
           grouped[key].punches.push(log.time);
@@ -168,12 +179,7 @@ export function initDB() {
 
         const insertMany = db.transaction((items) => {
           for (const item of items) {
-            insertDaily.run(
-              item.employee_id, 
-              item.date, 
-              item.punches.join(", "), 
-              [...item.upload_ids].join(",")
-            );
+            insertDaily.run(item.employee_id, item.date, item.punches.join(", "), [...item.upload_ids].join(","));
           }
         });
 

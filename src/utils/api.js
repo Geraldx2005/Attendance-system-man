@@ -31,7 +31,7 @@ export async function apiFetch(path, options = {}) {
       else if (pathSegments[1] === "employees" && pathSegments.length === 3 && options.method === "POST") {
         const employeeId = pathSegments[2];
         const body = options.body ? JSON.parse(options.body) : {};
-        dataPromise = window.api.updateEmployeeName(employeeId, body.name);
+        dataPromise = window.api.updateEmployee(employeeId, body.name, body.inTime);
       }
       // GET /api/logs/:employeeId
       else if (pathSegments[1] === "logs" && pathSegments.length === 3) {
@@ -102,8 +102,8 @@ export async function getAttendance(employeeId, month) {
   return window.api.getAttendance(employeeId, month);
 }
 
-export async function updateEmployeeName(employeeId, name) {
-  return window.api.updateEmployeeName(employeeId, name);
+export async function updateEmployee(employeeId, name, inTime) {
+  return window.api.updateEmployee(employeeId, name, inTime);
 }
 
 export async function getMonthlyGridReport(month) {

@@ -10,10 +10,11 @@ export default function EmployeeMapDialog({
   onSaved,
 }) {
   const [name, setName] = useState("");
+  const [inTime, setInTime] = useState("10:00");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState(null);
 
-  /* Load current name when dialog opens */
+  /* Load current values when dialog opens */
   useEffect(() => {
     if (!open) {
       setError(null);
@@ -22,8 +23,10 @@ export default function EmployeeMapDialog({
 
     if (employee) {
       setName(employee.name || employee.employeeId);
+      setInTime(employee.inTime || "10:00");
     } else {
       setName("");
+      setInTime("10:00");
     }
   }, [open, employee]);
 
@@ -42,7 +45,7 @@ export default function EmployeeMapDialog({
     return () => window.removeEventListener("keydown", onEsc);
   }, [open, onClose]);
 
-  /* Save name */
+  /* Save */
   const save = async () => {
     if (!employee || !name.trim() || saving) return;
 
@@ -59,16 +62,16 @@ export default function EmployeeMapDialog({
     try {
       await apiFetch(`/api/employees/${employee.employeeId}`, {
         method: "POST",
-        body: JSON.stringify({ name: trimmedName }),
+        body: JSON.stringify({ name: trimmedName, inTime }),
       });
 
-      toast("Employee name updated successfully", "success");
-      onSaved?.(trimmedName);
+      toast("Employee updated successfully", "success");
+      onSaved?.({ name: trimmedName, inTime });
       onClose();
     } catch (err) {
-      console.error("Failed to update employee name:", err);
-      setError("Failed to update name. Please try again.");
-      toast("Failed to update employee name", "error");
+      console.error("Failed to update employee:", err);
+      setError("Failed to update. Please try again.");
+      toast("Failed to update employee", "error");
     } finally {
       setSaving(false);
     }
@@ -128,7 +131,7 @@ export default function EmployeeMapDialog({
                 </div>
 
                 {/* Employee Name */}
-                <div className="mb-4">
+                <div className="mb-3">
                   <div className="text-xs text-nero-500 mb-1">
                     Employee Name
                   </div>
@@ -143,19 +146,37 @@ export default function EmployeeMapDialog({
                     maxLength={50}
                     className="w-full px-3 py-2 bg-nero-800 border border-nero-700 rounded-lg text-sm text-nero-300 outline-none focus:border-nero-400"
                   />
-                  <AnimatePresence>
-                    {error && (
-                      <motion.div
-                        initial={{ opacity: 0, y: -5 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        exit={{ opacity: 0, y: -5 }}
-                        className="text-xs text-red-400 mt-1"
-                      >
-                        {error}
-                      </motion.div>
-                    )}
-                  </AnimatePresence>
                 </div>
+
+                {/* In Time */}
+                <div className="mb-4">
+                  <div className="text-xs text-nero-500 mb-1">
+                    In Time
+                  </div>
+                  <input
+                    type="time"
+                    value={inTime}
+                    onChange={(e) => setInTime(e.target.value)}
+                    className="w-full px-3 py-2 bg-nero-800 border border-nero-700 rounded-lg text-sm text-nero-300 outline-none focus:border-nero-400 [color-scheme:dark] [&::-webkit-calendar-picker-indicator]:hidden"
+                  />
+                  <div className="text-[11px] text-nero-500 mt-1">
+                    Default: 10:00 AM
+                  </div>
+                </div>
+
+                {/* Error */}
+                <AnimatePresence>
+                  {error && (
+                    <motion.div
+                      initial={{ opacity: 0, y: -5 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0, y: -5 }}
+                      className="text-xs text-red-400 mb-3"
+                    >
+                      {error}
+                    </motion.div>
+                  )}
+                </AnimatePresence>
 
                 {/* Actions */}
                 <div className="flex justify-end gap-2">

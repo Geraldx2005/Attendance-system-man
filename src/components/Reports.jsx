@@ -175,6 +175,15 @@ const MONTHS = [
   "July", "August", "September", "October", "November", "December",
 ];
 
+// Helper: Format minutes to "Xh Ym"
+function formatMinutes(mins) {
+  if (mins === null || mins === undefined || Number.isNaN(mins)) return "0h 0m";
+  const total = Math.max(0, Math.round(mins));
+  const h = Math.floor(total / 60);
+  const m = total % 60;
+  return `${h}h ${m}m`;
+}
+
 function downloadWorkbookWithFrozenTopRows(wb, fileName, frozenRows = 2) {
   try {
     const workbookBytes = new Uint8Array(
@@ -647,9 +656,14 @@ export default function Reports({ onGenerated }) {
 
       // Helper: minutes to "Xh Ym"
       const fmtDuration = (mins) => {
-        if (!mins || mins <= 0) return "";
-        const h = Math.floor(mins / 60);
-        const m = mins % 60;
+        const numeric = Number(mins);
+        if (!Number.isFinite(numeric) || numeric <= 0) return "";
+
+        // Round to the nearest whole minute to avoid floating artifacts like 2.2999999
+        const totalMins = Math.round(numeric);
+        const h = Math.floor(totalMins / 60);
+        const m = totalMins % 60;
+
         return `${h}h ${m}m`;
       };
 
@@ -696,6 +710,9 @@ export default function Reports({ onGenerated }) {
             cellText = line1;
             if (detail.firstIn && detail.lastOut) {
               cellText += `\r\n${to12h(detail.firstIn)} - ${to12h(detail.lastOut)}`;
+            }
+            if (detail.lateMins > 0) {
+              cellText += `\r\nLate: ${fmtDuration(detail.lateMins)}`;
             }
           } else {
             // Simple mode: Status code only

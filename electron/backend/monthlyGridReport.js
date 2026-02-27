@@ -20,12 +20,12 @@ function timeToMinutes(time) {
  * Determine day status + details from punches string for a given date.
  * Returns { status, firstIn, lastOut, workedMinutes }
  */
-function getDayDetails(punches, dateStr) {
+function getDayDetails(punches, dateStr, expectedInMin) {
   const dateObj = new Date(dateStr);
   const isSunday = dateObj.getDay() === 0;
 
   if (!punches || !punches.trim()) {
-    return { status: isSunday ? "WO" : "A", firstIn: null, lastOut: null, workedMinutes: 0 };
+    return { status: isSunday ? "WO" : "A", firstIn: null, lastOut: null, workedMinutes: 0, lateMins: null };
   }
 
   const times = punches
@@ -33,7 +33,7 @@ function getDayDetails(punches, dateStr) {
     .map((t) => t.trim())
     .sort();
   if (times.length === 0) {
-    return { status: isSunday ? "WO" : "A", firstIn: null, lastOut: null, workedMinutes: 0 };
+    return { status: isSunday ? "WO" : "A", firstIn: null, lastOut: null, workedMinutes: 0, lateMins: null };
   }
 
   const firstIn = times[0];
@@ -56,11 +56,17 @@ function getDayDetails(punches, dateStr) {
       status = "A";
     }
 
-    return { status, firstIn, lastOut, workedMinutes: workedMins };
+    // Calculate lateness (only on non-Sunday working days)
+    let lateMins = 0;
+    if (!isSunday && inMins !== null && expectedInMin !== null && Math.floor(inMins) > Math.floor(expectedInMin)) {
+      lateMins = Math.floor(inMins) - Math.floor(expectedInMin);
+    }
+
+    return { status, firstIn, lastOut, workedMinutes: workedMins, lateMins };
   }
 
   // Bad data or single punch
-  return { status: isSunday ? "WO" : "A", firstIn, lastOut, workedMinutes: 0 };
+  return { status: isSunday ? "WO" : "A", firstIn, lastOut, workedMinutes: 0, lateMins: null };
 }
 
 /**
@@ -77,7 +83,7 @@ export function generateMonthlyGridReport(month) {
   logger.info("Generating monthly grid report", { month });
 
   // 1. Get all employees
-  const employees = db.prepare("SELECT id, name FROM employees ORDER BY name").all();
+  const employees = db.prepare("SELECT id, name, in_time AS inTime FROM employees ORDER BY name").all();
 
   // 2. Get all logs for the month
   const logs = db
@@ -120,11 +126,12 @@ export function generateMonthlyGridReport(month) {
   for (const emp of employees) {
     const empLogs = logMap.get(emp.id) || new Map();
     const dailyStatus = {};
+    const expectedInMin = timeToMinutes(emp.inTime || "10:00");
 
     for (let day = 1; day <= limitDay; day++) {
       const dateStr = `${month}-${String(day).padStart(2, "0")}`;
       const punches = empLogs.get(dateStr) || null;
-      dailyStatus[dateStr] = getDayDetails(punches, dateStr);
+      dailyStatus[dateStr] = getDayDetails(punches, dateStr, expectedInMin);
     }
 
     result.push({

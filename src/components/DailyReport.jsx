@@ -261,9 +261,10 @@ const darkMuiTheme = createTheme({
 
 // Helper: Format minutes to "Xh Ym"
 function formatMinutes(mins) {
-    if (!mins || mins <= 0) return "0h 0m";
-    const h = Math.floor(mins / 60);
-    const m = mins % 60;
+    if (mins === null || mins === undefined || Number.isNaN(mins)) return "0h 0m";
+    const total = Math.max(0, Math.round(mins)); // clamp + round to avoid float artifacts
+    const h = Math.floor(total / 60);
+    const m = total % 60;
     return `${h}h ${m}m`;
 }
 
@@ -315,6 +316,7 @@ async function fetchDailyReport(date) {
         let lastOut = null;
         let workingMins = 0;
         let breakMins = 0;
+        let lateMins = null;
         let status = "Absent";
 
         if (punches.length > 0) {
@@ -323,6 +325,14 @@ async function fetchDailyReport(date) {
 
             const inMin = timeToMinutes(firstIn);
             const outMin = timeToMinutes(lastOut);
+
+            // Calculate Lateness (set to 0 = on time, only override if actually late)
+            lateMins = 0;
+            const defaultInTime = emp.inTime || '10:00';
+            const expectedInMin = timeToMinutes(defaultInTime);
+            if (inMin !== null && expectedInMin !== null && Math.floor(inMin) > Math.floor(expectedInMin)) {
+                lateMins = Math.floor(inMin) - Math.floor(expectedInMin);
+            }
 
             if (inMin !== null && outMin !== null && outMin > inMin) {
                 const totalMins = outMin - inMin;
@@ -337,6 +347,10 @@ async function fetchDailyReport(date) {
                 }
 
                 workingMins = totalMins - breakMins;
+
+                // Normalize to whole minutes to prevent floating precision showing in UI/exports
+                breakMins = Math.max(0, Math.round(breakMins));
+                workingMins = Math.max(0, Math.round(workingMins));
 
                 // Determine status: <5hrs=Absent, 5-8hrs=Half Day, ≥8hrs=Full Day
                 // Exception: Sunday work < 5 hours is treated as Weekly Off (to prevent Absent status on Sundays)
@@ -370,6 +384,7 @@ async function fetchDailyReport(date) {
             lastOut,
             workingMins,
             breakMins,
+            lateMins,
             punchCount: punches.length,
             allPunches: punches, // Store all punches for export
             status,
@@ -489,6 +504,7 @@ export default function DailyReport({ onGenerated }) {
                 "First In": r.firstIn ? to12Hour(r.firstIn) : "--",
                 "Last Out": r.lastOut ? to12Hour(r.lastOut) : "--",
                 "Duration": formatMinutes(r.workingMins),
+                "Late By": r.lateMins === null ? "--" : r.lateMins > 0 ? formatMinutes(r.lateMins) : "On Time",
                 "Punch Count": r.punchCount,
                 "All Punches": r.allPunches && r.allPunches.length > 0
                     ? (() => {
@@ -537,6 +553,7 @@ export default function DailyReport({ onGenerated }) {
                 { wch: 12 }, // In
                 { wch: 12 }, // Out
                 { wch: 12 }, // Duration
+                { wch: 10 }, // Late By
                 { wch: 12 }, // Punch Count
                 { wch: 35 }, // All Punches
                 { wch: 14 }, // Status
@@ -637,6 +654,7 @@ export default function DailyReport({ onGenerated }) {
                     "First In",
                     "Last Out",
                     "Duration",
+                    "Late By",
                     "Punches",
                     "Status"
                 ]],
@@ -647,6 +665,7 @@ export default function DailyReport({ onGenerated }) {
                     r.firstIn ? to12Hour(r.firstIn) : "--",
                     r.lastOut ? to12Hour(r.lastOut) : "--",
                     formatMinutes(r.workingMins),
+                    r.lateMins === null ? "--" : r.lateMins > 0 ? formatMinutes(r.lateMins) : "On Time",
                     r.punchCount,
                     r.status
                 ]),
@@ -679,8 +698,9 @@ export default function DailyReport({ onGenerated }) {
                     2: { halign: "center", cellWidth: 66 },  // In
                     3: { halign: "center", cellWidth: 66 },  // Out
                     4: { halign: "center", cellWidth: 66 },  // Duration
-                    5: { halign: "center", cellWidth: 66 },  // Punches
-                    6: { halign: "center", cellWidth: 86 },  // Status
+                    5: { halign: "center", cellWidth: 66 },  // Late By
+                    6: { halign: "center", cellWidth: 66 },  // Punches
+                    7: { halign: "center", cellWidth: 86 },  // Status
                 },
 
                 alternateRowStyles: {
@@ -786,6 +806,22 @@ export default function DailyReport({ onGenerated }) {
                         {formatMinutes(cell.getValue())}
                     </span>
                 ),
+            },
+            {
+                accessorKey: "lateMins",
+                header: "Late By",
+                size: 90,
+                Cell: ({ cell }) => {
+                    const mins = cell.getValue();
+                    if (mins === null) return <span className="text-nero-500 font-medium">--</span>;
+                    return mins > 0 ? (
+                        <span className="text-red-400 font-medium">
+                            {formatMinutes(mins)}
+                        </span>
+                    ) : (
+                        <span className="text-emerald-400 font-medium">On Time</span>
+                    );
+                },
             },
             {
                 accessorKey: "punchCount",
