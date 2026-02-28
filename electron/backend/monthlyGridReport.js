@@ -43,7 +43,19 @@ function getDayDetails(punches, dateStr, expectedInMin) {
   const outMins = timeToMinutes(lastOut);
 
   if (inMins !== null && outMins !== null && outMins > inMins) {
-    const workedMins = outMins - inMins;
+    const totalMins = outMins - inMins;
+
+    // Calculate breaks (gaps between consecutive out-punch and next in-punch)
+    let breakMins = 0;
+    for (let i = 1; i < times.length - 1; i += 2) {
+      const outTime = timeToMinutes(times[i]);
+      const inTime = timeToMinutes(times[i + 1]);
+      if (outTime !== null && inTime !== null && inTime > outTime) {
+        breakMins += inTime - outTime;
+      }
+    }
+
+    const workedMins = Math.max(0, Math.round(totalMins - breakMins));
     let status;
 
     if (isSunday) {

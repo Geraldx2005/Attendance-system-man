@@ -294,7 +294,19 @@ ipcMain.handle("api:get-attendance", (_, { employeeId, month }) => {
         const isSunday = dateObj.getDay() === 0;
 
         if (inMin !== null && outMin !== null && outMin > inMin) {
-          workedMinutes = outMin - inMin;
+          const totalMins = outMin - inMin;
+
+          // Calculate breaks (gaps between consecutive out-punch and next in-punch)
+          let breakMins = 0;
+          for (let i = 1; i < punches.length - 1; i += 2) {
+            const outTime = timeToMinutes(punches[i]);
+            const inTime = timeToMinutes(punches[i + 1]);
+            if (outTime !== null && inTime !== null && inTime > outTime) {
+              breakMins += inTime - outTime;
+            }
+          }
+
+          workedMinutes = Math.max(0, Math.round(totalMins - breakMins));
 
           if (isSunday) {
             if (workedMinutes >= 5 * 60) {
@@ -359,7 +371,19 @@ ipcMain.handle("api:get-attendance", (_, { employeeId, month }) => {
       const isSunday = dateObj.getDay() === 0;
 
       if (inMin !== null && outMin !== null && outMin > inMin) {
-        workedMinutes = outMin - inMin;
+        const totalMins = outMin - inMin;
+
+        // Calculate breaks (gaps between consecutive out-punch and next in-punch)
+        let breakMins = 0;
+        for (let i = 1; i < punches.length - 1; i += 2) {
+          const outTime = timeToMinutes(punches[i]);
+          const inTime = timeToMinutes(punches[i + 1]);
+          if (outTime !== null && inTime !== null && inTime > outTime) {
+            breakMins += inTime - outTime;
+          }
+        }
+
+        workedMinutes = Math.max(0, Math.round(totalMins - breakMins));
 
         if (isSunday) {
           status = "WO Worked";

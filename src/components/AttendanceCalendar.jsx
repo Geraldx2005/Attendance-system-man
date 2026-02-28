@@ -30,7 +30,7 @@ function toCalendarEvent(d) {
   return {
     title: d.status === "Pending" ? "" : d.status,
     start: d.date,
-    extendedProps: { firstIn: d.firstIn, lastOut: d.lastOut },
+    extendedProps: { firstIn: d.firstIn, lastOut: d.lastOut, workedMinutes: d.workedMinutes },
     backgroundColor:
       d.status === "Full Day" ? "#2e7d32"
         : d.status === "Half Day" ? "#b7791f"
@@ -46,8 +46,10 @@ function toCalendarEvent(d) {
 
 
 function renderAttendanceEvent(info) {
-  const { firstIn, lastOut } = info.event.extendedProps;
-  const duration = firstIn && lastOut ? calcDuration(firstIn, lastOut) : null;
+  const { firstIn, lastOut, workedMinutes } = info.event.extendedProps;
+  const duration = workedMinutes > 0
+    ? `${Math.floor(workedMinutes / 60)}h ${Math.round(workedMinutes % 60)}m`
+    : null;
 
   return (
     <div style={{ fontSize: "11px", lineHeight: 1.2 }}>
